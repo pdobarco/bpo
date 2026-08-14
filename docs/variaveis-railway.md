@@ -1,6 +1,6 @@
-# Variáveis do Railway — Claria v0.2.0
+# Variáveis do Railway — Claria v0.2.1
 
-Estas são as variáveis **realmente consumidas pelo código da v0.2.0**.
+Estas são as variáveis **realmente consumidas pelo código da v0.2.1**.
 
 ```env
 NODE_ENV=production
@@ -24,4 +24,4 @@ MAX_UPLOAD_MB=25
 - `AI_FILE_MAX_CHARS`: máximo de texto enviado à Luna quando um PDF falha no parser convencional.
 - `MAX_UPLOAD_MB`: limite por arquivo recebido pelo backend.
 
-`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` **não são necessários nesta versão**, pois a v0.2.0 ainda não usa autenticação JWT nem armazenamento do binário original.
+`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` **não são necessários nesta versão**, pois a v0.2.1 ainda não usa autenticação JWT nem armazenamento do binário original.

@@ -148,11 +148,35 @@ app.get('/api/dre',async(req,res)=>{if(!pool)return res.json({sections:[],result
 app.get('/api/dre-comparative',async(req,res)=>{if(!pool)return res.json({year:new Date().getFullYear(),sections:[],result:[]});res.json(await buildDreComparative(await companyId(),req.query.year))})
 
 app.get('/api/transactions',async(req,res)=>{
-  if(!pool)return res.json({rows:[],total:0});const cid=await companyId(),range=rangeFromQuery(req.query),params=[cid,range.from,range.to],where=[`t.company_id=$1`,`t.competence_at BETWEEN $2::date AND $3::date`]
-  const add=(clause,value)=>{params.push(value);where.push(clause.replace('?',`$${params.length}`))}
-  if(req.query.q){const q=`%${req.query.q}%`;params.push(q,q,q);where.push(`(t.description ILIKE $${params.length-2} OR t.category ILIKE $${params.length-1} OR t.normalized_party ILIKE $${params.length})`)}
-  if(req.query.direction)add(`t.direction=?`,req.query.direction);if(req.query.category)add(`t.category=?`,req.query.category);if(req.query.paymentMethod)add(`t.payment_method=?`,req.query.paymentMethod);if(req.query.status)add(`t.financial_status=?`,req.query.status);if(req.query.sourceFile)add(`sf.id::text=?`,req.query.sourceFile)
-  const limit=Math.min(500,Math.max(20,Number(req.query.limit)||200)),offset=Math.max(0,Number(req.query.offset)||0),count=await pool.query(`SELECT count(*)::int n FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')}`,params),rows=await pool.query(`SELECT t.id,t.occurred_at,t.competence_at,t.due_at,t.paid_at,t.description,t.normalized_party,t.counterparty_document,t.direction,t.amount,t.gross_amount,t.fee_amount,t.net_amount,t.category,t.payment_method,t.financial_status,t.classification_status,t.classification_source,t.classification_confidence,t.accounting_role,t.dre_impact,t.cash_impact,t.source_page,sf.id source_file_id,sf.name source_file_name,sf.kind source_kind FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')} ORDER BY t.competence_at DESC,t.occurred_at DESC LIMIT ${limit} OFFSET ${offset}`,params);res.json({rows:rows.rows,total:n(count.rows[0]?.n)})
+  if(!pool)return res.json({rows:[],total:0,inflow:0,outflow:0});
+  try{
+    const cid=await companyId(),range=rangeFromQuery(req.query),params=[cid,range.from,range.to],effectiveCompetence=`COALESCE(t.competence_at,t.occurred_at::date)`,where=[`t.company_id=$1`,`${effectiveCompetence} BETWEEN $2::date AND $3::date`]
+    const add=(clause,value)=>{params.push(value);where.push(clause.replace('?',`$${params.length}`))}
+    if(req.query.q){const q=`%${req.query.q}%`;params.push(q,q,q);where.push(`(t.description ILIKE $${params.length-2} OR t.category ILIKE $${params.length-1} OR t.normalized_party ILIKE $${params.length})`)}
+    if(req.query.direction)add(`t.direction=?`,req.query.direction);if(req.query.category)add(`t.category=?`,req.query.category);if(req.query.paymentMethod)add(`t.payment_method=?`,req.query.paymentMethod);if(req.query.status)add(`t.financial_status=?`,req.query.status);if(req.query.sourceFile)add(`sf.id::text=?`,req.query.sourceFile)
+    const sortMap={competence:effectiveCompetence,description:'t.description',paymentMethod:'t.payment_method',category:'t.category',status:'t.financial_status',amount:'t.amount'},sortExpr=sortMap[req.query.sort]||effectiveCompetence,sortOrder=String(req.query.order).toLowerCase()==='asc'?'ASC':'DESC',limit=Math.min(500,Math.max(20,Number(req.query.limit)||200)),offset=Math.max(0,Number(req.query.offset)||0)
+    const summary=await pool.query(`SELECT count(*)::int n,COALESCE(sum(CASE WHEN t.amount>0 THEN t.amount ELSE 0 END),0)::numeric inflow,COALESCE(abs(sum(CASE WHEN t.amount<0 THEN t.amount ELSE 0 END)),0)::numeric outflow FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')}`,params)
+    const rows=await pool.query(`SELECT t.id,t.occurred_at,t.competence_at,${effectiveCompetence} effective_competence_at,t.due_at,t.paid_at,t.description,t.normalized_party,t.counterparty_document,t.direction,t.amount,t.gross_amount,t.fee_amount,t.net_amount,t.category,t.account_id,t.payment_method,t.financial_status,t.classification_status,t.classification_source,t.classification_confidence,t.accounting_role,t.dre_impact,t.cash_impact,t.source_page,sf.id source_file_id,sf.name source_file_name,sf.kind source_kind FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')} ORDER BY ${sortExpr} ${sortOrder} NULLS LAST,t.occurred_at DESC,t.id DESC LIMIT ${limit} OFFSET ${offset}`,params)
+    res.json({rows:rows.rows,total:n(summary.rows[0]?.n),inflow:n(summary.rows[0]?.inflow),outflow:n(summary.rows[0]?.outflow)})
+  }catch(e){console.error('transactions',e);res.status(500).json({message:'Não foi possível carregar os lançamentos.',detail:process.env.NODE_ENV==='production'?undefined:e.message})}
+})
+
+app.patch('/api/transactions/:id',async(req,res)=>{
+  if(!pool)return res.status(503).json({message:'Banco não configurado'});
+  try{
+    const cid=await companyId(),id=req.params.id,current=await pool.query(`SELECT t.*,a.name account_name FROM transactions t LEFT JOIN chart_accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.company_id=$2 LIMIT 1`,[id,cid]);
+    if(!current.rowCount)return res.status(404).json({message:'Lançamento não encontrado.'});
+    const before=current.rows[0],competenceAt=String(req.body.competenceAt||toDateOnly(before.competence_at)||toDateOnly(before.occurred_at)||'').slice(0,10),accountId=req.body.accountId||before.account_id||null,updateRule=Boolean(req.body.updateRule);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(competenceAt))return res.status(400).json({message:'Informe uma competência válida.'});
+    const oldPeriod=String(toDateOnly(before.competence_at)||toDateOnly(before.occurred_at)||'').slice(0,7),newPeriod=competenceAt.slice(0,7);
+    if((oldPeriod&&await isClosed(cid,oldPeriod))||(newPeriod!==oldPeriod&&await isClosed(cid,newPeriod)))return res.status(409).json({message:'O período está fechado. Reabra o mês antes de alterar o lançamento.'});
+    let account=null;if(accountId){const ar=await pool.query(`SELECT id,name,dre_section FROM chart_accounts WHERE id=$1 AND company_id=$2 AND active=true AND is_group=false LIMIT 1`,[accountId,cid]);if(!ar.rowCount)return res.status(400).json({message:'Plano de Contas inválido.'});account=ar.rows[0]}
+    const category=account?.name||before.category||'A classificar',dreImpact=account?account.dre_section!=='FORA_DRE':dreImpactForCategory(category),accountingRole=category==='Transferência entre contas próprias'?'TRANSFER':category==='Liquidação de cartão de crédito'?'CARD_SETTLEMENT':['TRANSFER','CARD_SETTLEMENT'].includes(before.accounting_role)?'BANK_MOVEMENT':before.accounting_role;
+    const updated=await pool.query(`UPDATE transactions SET competence_at=$3::date,account_id=$4,category=$5,dre_impact=$6,accounting_role=$7,classification_status=CASE WHEN $4::uuid IS NULL THEN classification_status ELSE 'CONFIRMED' END,classification_source=CASE WHEN $4::uuid IS NULL THEN classification_source ELSE 'MANUAL_EDIT' END WHERE id=$1 AND company_id=$2 RETURNING *`,[id,cid,competenceAt,account?.id||null,category,dreImpact,accountingRole]);
+    if(updateRule&&account&&before.normalized_party){await upsertCompanyRule({cid,party:String(before.normalized_party).toUpperCase().trim(),document:before.counterparty_document,direction:before.direction,category,accountId:account.id,source:'MANUAL_EDIT'})}
+    await applyAccountingPolicy(cid);await auditSafe(cid,'TRANSACTION_EDITED','transaction',id,{before:{competenceAt:toDateOnly(before.competence_at)||toDateOnly(before.occurred_at),accountId:before.account_id,category:before.category},after:{competenceAt,accountId:account?.id||null,category},updateRule});
+    res.json({ok:true,row:updated.rows[0]})
+  }catch(e){console.error('transaction edit',e);res.status(500).json({message:'Não foi possível salvar a alteração.'})}
 })
 
 app.get('/api/dashboard',async(req,res)=>{
@@ -197,7 +221,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=await companyId(),{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.2.0',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.2.0',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.2.0',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.2.1',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.2.1',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.2.1',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist');if(fs.existsSync(dist)){app.use(express.static(dist));app.get('*',(req,res)=>res.sendFile(path.join(dist,'index.html')))}
-initDb().then(()=>app.listen(PORT,()=>console.log(`Claria v0.2.0 on :${PORT}`))).catch(e=>{console.error('DB init failed',e);process.exit(1)})
+initDb().then(()=>app.listen(PORT,()=>console.log(`Claria v0.2.1 on :${PORT}`))).catch(e=>{console.error('DB init failed',e);process.exit(1)})

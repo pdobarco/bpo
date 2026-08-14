@@ -160,7 +160,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.2.0',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.2.1',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
   await pool.query(`UPDATE transactions SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas'`)
@@ -168,6 +168,13 @@ export async function initDb() {
   await pool.query(`UPDATE transactions SET category='Liquidação de cartão de crédito' WHERE category='Cartão de crédito' AND description ILIKE 'Pagamento de fatura%'`)
   await pool.query(`UPDATE chart_accounts SET name='Liquidação de cartão de crédito',updated_at=now() WHERE code='9.03' AND name='Cartão de crédito'`)
   await pool.query(`UPDATE classification_rules SET category='Liquidação de cartão de crédito',updated_at=now() WHERE category='Cartão de crédito' AND pattern ILIKE '%PAGAMENTO DE FATURA%'`)
+  // v0.2.1: competência nunca fica sem referência. Para legados, a data do evento é o fallback oficial.
+  await pool.query(`UPDATE transactions SET competence_at=occurred_at::date WHERE competence_at IS NULL AND occurred_at IS NOT NULL`)
+  // Padroniza apenas rótulos conhecidos; não inventa PIX quando o extrato só informa transferência.
+  await pool.query(`UPDATE transactions SET payment_method='Cartão de crédito' WHERE upper(COALESCE(payment_method,'')) IN ('CREDITO','CRÉDITO','CARTAO DE CREDITO','CARTÃO DE CRÉDITO')`)
+  await pool.query(`UPDATE transactions SET payment_method='Cartão de débito' WHERE upper(COALESCE(payment_method,'')) IN ('DEBITO','DÉBITO','CARTAO DE DEBITO','CARTÃO DE DÉBITO')`)
+  await pool.query(`UPDATE transactions SET payment_method='PIX' WHERE upper(COALESCE(payment_method,''))='PIX'`)
+  await pool.query(`UPDATE transactions SET payment_method='Transferência' WHERE upper(COALESCE(payment_method,'')) IN ('TRANSFERENCIA','TRANSFERÊNCIA')`)
 
   const c = await pool.query('SELECT id FROM companies LIMIT 1')
   if (!c.rowCount) await pool.query(`INSERT INTO companies(name,document,sector,activity) VALUES ('Empresa Demonstração','','Comércio','Venda de produtos e serviços')`)

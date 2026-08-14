@@ -1,109 +1,57 @@
-# Claria v0.2.0 — Fechamento Confiável
+# Claria v0.2.1 — Correções de Lançamentos e DRE
 
-PWA de gestão financeira/BPO multiempresa em evolução. A v0.2.0 reorganiza o núcleo do Claria em uma cadeia simples de confiança:
+PWA financeira/BPO multiempresa. Esta versão é uma correção segura sobre a v0.2.0 e **reutiliza o mesmo PostgreSQL**.
 
-**1. Arquivos → 2. Lançamentos → 3. Conciliação → 4. Gestão → Fechar período**
+## O que mudou
 
-O objetivo desta versão é que o usuário consiga responder com segurança:
+- `Todos os lançamentos` recarrega ao abrir a aba, trocar período, filtros ou ordenação.
+- Falha de API não aparece mais como `0 lançamentos`; a tela mostra erro e `Tentar novamente`.
+- Proteção de consistência: se a DRE possui valores e a lista retorna zero, o Claria avisa.
+- Competência: quando não existe `competence_at`, a data do evento (`occurred_at`) é usada automaticamente.
+- Datas ISO e datas simples são exibidas sem `Invalid Date`.
+- Cada lançamento pode ser editado depois de confirmado:
+  - Data de competência;
+  - Plano de Contas;
+  - opcionalmente salvar o novo Plano de Contas como regra para próximos lançamentos do mesmo nome.
+- Alterações de lançamento ficam registradas na Auditoria.
+- DRE é recalculada após mudança de competência ou Plano de Contas.
+- Cabeçalhos da tabela de lançamentos são clicáveis para ordenar crescente/decrescente.
+- Rodapé mostra quantidade de lançamentos, entradas e saídas do filtro/período atual.
+- Valores da DRE ficam mais próximos dos títulos para melhorar a leitura em telas largas.
+- Rótulos conhecidos de forma de pagamento são normalizados sem inventar PIX quando o arquivo só informa transferência.
 
-- todos os arquivos do mês foram recebidos?
-- o Claria leu e contabilizou tudo?
-- o que ainda precisa de classificação?
-- venda, recebimento e pagamento estão sendo contados apenas uma vez?
-- a DRE é por competência e o caixa por pagamento?
-- o mês está pronto para ser fechado?
+## Atualização no Railway
 
-## Principais novidades
+1. Substitua os arquivos do repositório pelos desta versão.
+2. Faça commit/push no GitHub.
+3. Aguarde o redeploy automático do Railway.
+4. **Não apague o PostgreSQL e não altere `DATABASE_URL`.**
 
-### Arquivos e conferência
-- status claros: Importado / Revisar / Erro / Não reconhecido;
-- fontes esperadas por empresa e por mês;
-- conferência matemática de PDFs quando o documento fornece totais de controle;
-- fallback com GPT-5.6 Luna quando um PDF não gera lançamentos pelo parser convencional;
-- base Excel de fornecedores continua ensinando o PostgreSQL.
+A inicialização atualiza o schema para `0.2.1` e preenche competências legadas vazias com a data do evento.
 
-### Lançamentos
-- `Ensinar o Claria`: classifica uma vez por nome + direção;
-- `Todos os lançamentos`: auditoria detalhada por período;
-- competência, vencimento, pagamento, forma de pagamento, fornecedor/cliente, status e arquivo de origem;
-- conta de origem preservada e rastreável.
+## Health check
 
-### Competência x caixa
-- `competence_at` define quando receita/despesa aparece na DRE;
-- `paid_at` / movimentação bancária define quando entra ou sai caixa;
-- compra em cartão entra na DRE pela compra; pagamento da fatura é somente liquidação de caixa.
-
-### Antiduplicidade econômica
-- relatório detalhado de vendas PagBank vira o fato de venda;
-- recebimentos equivalentes no extrato PagBank passam a ser caixa, sem duplicar receita na DRE;
-- taxas de cartão são registradas separadamente na DRE;
-- pagamento de fatura Nubank fica fora da DRE.
-
-### Gestão
-- período global por mês;
-- DRE mensal;
-- DRE comparativa mês a mês;
-- valores visíveis nos gráficos;
-- indicadores clicáveis para auditar os lançamentos que formam o número;
-- recebimentos/pagamentos por forma.
-
-### Fechamento
-- semáforo: Arquivos / Lançamentos / Conciliação / Gestão;
-- indicador de qualidade dos dados;
-- fechamento mensal;
-- DRE do período fechado salva em snapshot;
-- classificações futuras não reescrevem lançamentos de meses fechados;
-- histórico de auditoria.
-
-## Banco existente
-
-A v0.2.0 foi desenhada para **migrar o PostgreSQL existente**. Não apague o banco da v0.1.x.
-
-Na inicialização, o backend cria as novas tabelas e colunas com `CREATE TABLE IF NOT EXISTS` e `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
-
-O endpoint de diagnóstico é:
+Após o deploy, abra:
 
 ```text
-/api/health
+https://SEU-APP.up.railway.app/api/health
 ```
 
-Resposta esperada após o deploy:
+Resposta esperada:
 
 ```json
 {
   "ok": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "database": "ok",
-  "schema": "0.2.0"
+  "schema": "0.2.1"
 }
 ```
 
-## Railway
+## Variáveis
 
-1. Suba os arquivos deste diretório no GitHub.
-2. Mantenha o PostgreSQL atual e a mesma `DATABASE_URL`.
-3. Conecte o serviço ao repositório.
-4. Configure as variáveis descritas em `docs/variaveis-railway.md`.
-5. Faça o deploy.
-6. Abra `/api/health` antes de testar a interface.
+Consulte `docs/variaveis-railway.md`. A v0.2.1 não exige nenhuma nova variável em relação à v0.2.0.
 
-O `railway.json` usa:
+## Teste rápido após o deploy
 
-```text
-Build: npm run install:all && npm run build
-Start: npm start
-Healthcheck: /api/health
-```
-
-## IA / Luna
-
-O Claria usa `gpt-5.6-luna` somente quando ajuda a economizar trabalho humano:
-
-1. sugestão em lote para favorecidos de saída desconhecidos;
-2. fallback de adaptação de PDF quando o parser convencional não encontra lançamentos.
-
-Classificações conhecidas, biblioteca compartilhada, regras da empresa, CNPJ e parsers continuam tendo prioridade sobre IA.
-
-## Observação de segurança
-
-Os arquivos originais não são gravados pelo backend nesta versão. O banco guarda os lançamentos normalizados, metadados de origem, hash e resultados de conferência.
+Consulte `docs/teste-aceite-v0.2.1.md`.
