@@ -1,46 +1,27 @@
-# Variáveis do Railway — Claria v0.1.3
+# Variáveis do Railway — Claria v0.2.0
 
-Cole estas variáveis no **RAW Editor** do serviço Web. Ajuste `APP_URL`, `DATABASE_URL` e a chave da OpenAI.
+Estas são as variáveis **realmente consumidas pelo código da v0.2.0**.
 
 ```env
 NODE_ENV=production
 DATABASE_URL=${{Postgres.DATABASE_URL}}
-JWT_SECRET=Claria_2026_Q7m9K2xV8pR4nT6wY3aF5hJ1sD0cL9zB7eN2uM6
-APP_NAME=Claria
-APP_URL=https://SEU-APP.up.railway.app
 
 AI_ENABLED=true
-OPENAI_API_KEY=COLE_SUA_CHAVE_AQUI
+OPENAI_API_KEY=SUA_CHAVE_OPENAI
 OPENAI_MODEL=gpt-5.6-luna
 AI_MAX_BATCH=40
-AI_MIN_CONFIDENCE=60
+AI_FILE_MAX_CHARS=30000
 
 MAX_UPLOAD_MB=25
-STORE_ORIGINAL_FILES=false
 ```
 
-> Se o serviço PostgreSQL não se chamar `Postgres`, troque o nome dentro de `${{Postgres.DATABASE_URL}}` pelo nome real do serviço no Railway.
+## Observações
 
-| Variável | Uso |
-|---|---|
-| `DATABASE_URL` | PostgreSQL do Claria |
-| `JWT_SECRET` | preparada para autenticação multiusuário |
-| `NODE_ENV` | `production` no Railway |
-| `APP_NAME` | nome do app |
-| `APP_URL` | URL pública do serviço |
-| `AI_ENABLED` | habilita sugestões da Luna |
-| `OPENAI_API_KEY` | chave da OpenAI, somente no Railway |
-| `OPENAI_MODEL` | `gpt-5.6-luna` |
-| `AI_MAX_BATCH` | máximo de nomes enviados à Luna por chamada |
-| `AI_MIN_CONFIDENCE` | reservado para políticas de automação futuras; nesta versão IA sempre pede confirmação |
-| `MAX_UPLOAD_MB` | limite por arquivo |
-| `STORE_ORIGINAL_FILES` | deve permanecer `false` neste estágio |
-| `PORT` | **não configure**; Railway injeta automaticamente |
+- `PORT`: não crie manualmente; o Railway fornece.
+- `DATABASE_URL`: use referência para o PostgreSQL existente do projeto.
+- `OPENAI_API_KEY`: somente nas Variables do Railway; nunca no GitHub.
+- `AI_MAX_BATCH`: máximo de favorecidos enviados numa chamada de classificação da Luna.
+- `AI_FILE_MAX_CHARS`: máximo de texto enviado à Luna quando um PDF falha no parser convencional.
+- `MAX_UPLOAD_MB`: limite por arquivo recebido pelo backend.
 
-## Como a Luna economiza tokens
-
-- Não recebe cada movimentação individual.
-- Recebe somente entidades de **saída ainda desconhecidas**.
-- Os lançamentos são agrupados por nome antes da chamada.
-- No máximo `AI_MAX_BATCH` nomes vão em cada chamada.
-- Depois que o usuário confirma o nome, a regra fica salva e esse nome não volta para a Luna.
+`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` **não são necessários nesta versão**, pois a v0.2.0 ainda não usa autenticação JWT nem armazenamento do binário original.

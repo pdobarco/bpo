@@ -1,87 +1,109 @@
-# Claria BPO — v0.1.3
+# Claria v0.2.0 — Fechamento Confiável
 
-PWA multiempresa para organizar arquivos financeiros, aprender classificações e formar caixa, conciliação e DRE sem exigir conhecimento contábil do usuário.
+PWA de gestão financeira/BPO multiempresa em evolução. A v0.2.0 reorganiza o núcleo do Claria em uma cadeia simples de confiança:
 
-## Correção crítica da v0.1.3
+**1. Arquivos → 2. Lançamentos → 3. Conciliação → 4. Gestão → Fechar período**
 
-Esta versão corrige a migração do PostgreSQL quando o banco já vinha das versões 0.1.0/0.1.1.
+O objetivo desta versão é que o usuário consiga responder com segurança:
 
-Na v0.1.2, o `initDb()` tentava criar índices que dependiam das colunas novas `counterparty_document` e `account_id` **antes** de executar os `ALTER TABLE` que adicionavam essas colunas ao banco antigo. Isso fazia o PostgreSQL abortar a inicialização com erros como:
+- todos os arquivos do mês foram recebidos?
+- o Claria leu e contabilizou tudo?
+- o que ainda precisa de classificação?
+- venda, recebimento e pagamento estão sendo contados apenas uma vez?
+- a DRE é por competência e o caixa por pagamento?
+- o mês está pronto para ser fechado?
 
-- `column "counterparty_document" does not exist`
-- `relation "chart_accounts" does not exist`
+## Principais novidades
 
-A v0.1.3 passa a migrar em ordem segura:
+### Arquivos e conferência
+- status claros: Importado / Revisar / Erro / Não reconhecido;
+- fontes esperadas por empresa e por mês;
+- conferência matemática de PDFs quando o documento fornece totais de controle;
+- fallback com GPT-5.6 Luna quando um PDF não gera lançamentos pelo parser convencional;
+- base Excel de fornecedores continua ensinando o PostgreSQL.
 
-1. cria/garante as tabelas-base;
-2. cria `chart_accounts`;
-3. adiciona as novas colunas às tabelas antigas;
-4. cria memória global e contas próprias;
-5. só então cria os índices;
-6. registra `schema_version=0.1.3`.
+### Lançamentos
+- `Ensinar o Claria`: classifica uma vez por nome + direção;
+- `Todos os lançamentos`: auditoria detalhada por período;
+- competência, vencimento, pagamento, forma de pagamento, fornecedor/cliente, status e arquivo de origem;
+- conta de origem preservada e rastreável.
 
-**Não é necessário apagar o PostgreSQL nem perder os dados já importados.** Basta fazer o deploy desta versão sobre o banco atual.
+### Competência x caixa
+- `competence_at` define quando receita/despesa aparece na DRE;
+- `paid_at` / movimentação bancária define quando entra ou sai caixa;
+- compra em cartão entra na DRE pela compra; pagamento da fatura é somente liquidação de caixa.
 
-## O que permanece da v0.1.2
+### Antiduplicidade econômica
+- relatório detalhado de vendas PagBank vira o fato de venda;
+- recebimentos equivalentes no extrato PagBank passam a ser caixa, sem duplicar receita na DRE;
+- taxas de cartão são registradas separadamente na DRE;
+- pagamento de fatura Nubank fica fora da DRE.
 
-### Plano de Contas configurável
-- **Configurações → Plano de contas**.
-- Criar e editar contas, grupos e códigos.
-- Tipos: Receita, Dedução, Custo, Despesa, Financeiro, Transferência e Sócios/Patrimônio.
-- Definir em qual linha da DRE a conta entra.
-- Contas em **Fora da DRE** continuam no fluxo bancário, sem alterar faturamento ou resultado.
-- Novas contas entram imediatamente nas opções de classificação e nas categorias disponíveis para a Luna.
+### Gestão
+- período global por mês;
+- DRE mensal;
+- DRE comparativa mês a mês;
+- valores visíveis nos gráficos;
+- indicadores clicáveis para auditar os lançamentos que formam o número;
+- recebimentos/pagamentos por forma.
 
-### Base Excel de fornecedores ensina o Claria
-- Excel/CSV com `Fornecedor + Classificação/Plano de contas` é identificado automaticamente.
-- CNPJ/CPF é priorizado quando disponível.
-- A classificação é salva no PostgreSQL.
-- Fornecedores empresariais podem alimentar a biblioteca compartilhada.
-- Pessoas físicas permanecem na memória específica da empresa.
+### Fechamento
+- semáforo: Arquivos / Lançamentos / Conciliação / Gestão;
+- indicador de qualidade dos dados;
+- fechamento mensal;
+- DRE do período fechado salva em snapshot;
+- classificações futuras não reescrevem lançamentos de meses fechados;
+- histórico de auditoria.
 
-### Biblioteca compartilhada
-- Regras específicas da empresa têm prioridade.
-- Depois vem a biblioteca global.
-- Regras globais aumentam confiança conforme recebem confirmações de empresas diferentes.
+## Banco existente
 
-### Transferências entre contas próprias
-- **Configurações → Contas da empresa**.
-- Cadastro de Nubank, PagBank, Inter e outras contas usadas pela empresa.
-- Transferências próprias são classificadas como **Fora da DRE**.
+A v0.2.0 foi desenhada para **migrar o PostgreSQL existente**. Não apague o banco da v0.1.x.
 
-### Luna econômica
-- Envia apenas favorecidos de saída ainda desconhecidos.
-- Processamento em lote.
-- Categorias vêm do Plano de Contas da empresa.
-- A sugestão só vira memória depois da confirmação do usuário.
+Na inicialização, o backend cria as novas tabelas e colunas com `CREATE TABLE IF NOT EXISTS` e `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 
-## Diagnóstico no Railway
+O endpoint de diagnóstico é:
 
-Depois do deploy, abra:
+```text
+/api/health
+```
 
-`https://SEU-APP.up.railway.app/api/health`
-
-A resposta esperada é semelhante a:
+Resposta esperada após o deploy:
 
 ```json
 {
   "ok": true,
-  "version": "0.1.3",
+  "version": "0.2.0",
   "database": "ok",
-  "schema": "0.1.3"
+  "schema": "0.2.0"
 }
 ```
 
-## Subir no Railway
+## Railway
 
-1. Substitua os arquivos do repositório pelos desta versão e faça commit/push.
-2. Não recrie o PostgreSQL.
-3. O Railway fará novo deploy automaticamente.
-4. Confira `/api/health`.
-5. Reabra o Claria e teste Plano de Contas, Arquivos e Ensinar o Claria.
+1. Suba os arquivos deste diretório no GitHub.
+2. Mantenha o PostgreSQL atual e a mesma `DATABASE_URL`.
+3. Conecte o serviço ao repositório.
+4. Configure as variáveis descritas em `docs/variaveis-railway.md`.
+5. Faça o deploy.
+6. Abra `/api/health` antes de testar a interface.
 
-O `DATABASE_URL` deve continuar apontando para o PostgreSQL atual. Não defina `PORT`: o Railway fornece essa variável.
+O `railway.json` usa:
 
-## Privacidade
+```text
+Build: npm run install:all && npm run build
+Start: npm start
+Healthcheck: /api/health
+```
 
-Não publique extratos, planilhas ou chaves reais no GitHub. Os arquivos originais não são persistidos por padrão (`STORE_ORIGINAL_FILES=false`). A biblioteca compartilhada guarda conhecimento de classificação, e não os valores financeiros de outras empresas.
+## IA / Luna
+
+O Claria usa `gpt-5.6-luna` somente quando ajuda a economizar trabalho humano:
+
+1. sugestão em lote para favorecidos de saída desconhecidos;
+2. fallback de adaptação de PDF quando o parser convencional não encontra lançamentos.
+
+Classificações conhecidas, biblioteca compartilhada, regras da empresa, CNPJ e parsers continuam tendo prioridade sobre IA.
+
+## Observação de segurança
+
+Os arquivos originais não são gravados pelo backend nesta versão. O banco guarda os lançamentos normalizados, metadados de origem, hash e resultados de conferência.
