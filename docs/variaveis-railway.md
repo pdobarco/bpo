@@ -1,22 +1,46 @@
-# Variáveis do Railway
+# Variáveis do Railway — Claria v0.1.1
 
-| Variável | Obrigatória | Exemplo/função |
-|---|---|---|
-| `DATABASE_URL` | Sim | conexão PostgreSQL do próprio Railway |
-| `JWT_SECRET` | Sim | segredo longo; preparado para autenticação v0.2 |
-| `NODE_ENV` | Sim | `production` |
-| `APP_NAME` | Não | `Claria` |
-| `APP_URL` | Recomendada | URL pública do serviço |
-| `MAX_UPLOAD_MB` | Não | `20` |
-| `STORE_ORIGINAL_FILES` | Não | `false` |
-| `AI_ENABLED` | Não | `false` |
-| `OPENAI_API_KEY` | Só quando IA ativar | chave da API |
-| `OPENAI_MODEL` | Só quando IA ativar | modelo escolhido no momento da integração |
-| `PORT` | Não configurar | Railway injeta automaticamente |
+Cole estas variáveis no **RAW Editor** do serviço Web. Ajuste `APP_URL`, `DATABASE_URL` e a chave da OpenAI.
 
-## Serviços
+```env
+NODE_ENV=production
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+JWT_SECRET=Claria_2026_Q7m9K2xV8pR4nT6wY3aF5hJ1sD0cL9zB7eN2uM6
+APP_NAME=Claria
+APP_URL=https://SEU-APP.up.railway.app
 
-- 1 serviço Web para este repositório.
-- 1 PostgreSQL no mesmo projeto Railway.
+AI_ENABLED=true
+OPENAI_API_KEY=COLE_SUA_CHAVE_AQUI
+OPENAI_MODEL=gpt-5.6-luna
+AI_MAX_BATCH=40
+AI_MIN_CONFIDENCE=60
 
-A v0.1 funciona sem IA. Classificação conhecida ocorre por regras locais/globais; itens desconhecidos ficam como `A classificar` para revisão.
+MAX_UPLOAD_MB=25
+STORE_ORIGINAL_FILES=false
+```
+
+> Se o serviço PostgreSQL não se chamar `Postgres`, troque o nome dentro de `${{Postgres.DATABASE_URL}}` pelo nome real do serviço no Railway.
+
+| Variável | Uso |
+|---|---|
+| `DATABASE_URL` | PostgreSQL do Claria |
+| `JWT_SECRET` | preparada para autenticação multiusuário |
+| `NODE_ENV` | `production` no Railway |
+| `APP_NAME` | nome do app |
+| `APP_URL` | URL pública do serviço |
+| `AI_ENABLED` | habilita sugestões da Luna |
+| `OPENAI_API_KEY` | chave da OpenAI, somente no Railway |
+| `OPENAI_MODEL` | `gpt-5.6-luna` |
+| `AI_MAX_BATCH` | máximo de nomes enviados à Luna por chamada |
+| `AI_MIN_CONFIDENCE` | reservado para políticas de automação futuras; nesta versão IA sempre pede confirmação |
+| `MAX_UPLOAD_MB` | limite por arquivo |
+| `STORE_ORIGINAL_FILES` | deve permanecer `false` neste estágio |
+| `PORT` | **não configure**; Railway injeta automaticamente |
+
+## Como a Luna economiza tokens
+
+- Não recebe cada movimentação individual.
+- Recebe somente entidades de **saída ainda desconhecidas**.
+- Os lançamentos são agrupados por nome antes da chamada.
+- No máximo `AI_MAX_BATCH` nomes vão em cada chamada.
+- Depois que o usuário confirma o nome, a regra fica salva e esse nome não volta para a Luna.

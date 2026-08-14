@@ -1,73 +1,52 @@
-# Claria BPO — v0.1.0
+# Claria BPO — v0.1.1
 
-PWA multiempresa para organizar arquivos financeiros, normalizar extratos/relatórios, classificar lançamentos e preparar conciliação, fluxo de caixa e DRE.
+PWA multiempresa para organizar arquivos financeiros, normalizar extratos/relatórios, classificar lançamentos uma única vez por entidade e preparar conciliação, fluxo de caixa e DRE.
 
-## O que já existe nesta primeira versão
+## Melhorias desta versão
 
-- PWA responsiva, simples e focada em usuário leigo.
-- Painel Master com troca de empresa.
-- Tela Início com caixa, entradas, saídas, pendências e visão mensal.
-- Tela Arquivos com `Escolher pasta` (upload de diretório) e seleção de arquivos.
-- Leitura de PDF e Excel/CSV no backend.
-- Detecção inicial de layouts: extrato PagBank/PagSeguro, extrato Nubank, fatura Nubank e relatório de vendas PagBank.
-- Normalização de lançamentos em uma tabela única.
-- Biblioteca compartilhada de classificação + regras específicas por empresa.
-- Exemplos globais: CELESC→Energia, CASAN→Água, Google Ads→Marketing, Superfrete→Fretes.
-- Tela de lançamentos com filtro e classificação manual.
-- Conciliação (estrutura e tela inicial) e DRE resumida.
-- PostgreSQL e isolamento por empresa.
-- Evita duplicidade por hash do arquivo.
-- Originais não são persistidos por padrão.
+- Corrige o parser Nubank que podia transformar uma `Transferência Recebida` em saída quando a descrição continha `NU PAGAMENTOS`.
+- Migração automática corrige registros antigos afetados por esse bug ao iniciar a nova versão.
+- Extrai e normaliza o nome da pessoa/empresa de cada movimentação.
+- Nova tela **Ensinar o Claria**: agrupa pendências por `nome + direção`, em vez de exigir classificação lançamento a lançamento.
+- Ao confirmar uma categoria, o Claria cria uma regra da empresa e reaplica em todo o histórico daquele nome e direção.
+- Entradas via PIX/transferência recebida desconhecida recebem sugestão inicial `Receita de vendas`.
+- Transferências contendo nome/CNPJ da própria empresa podem ser reconhecidas como `Transferência entre contas`.
+- Botão em lote para confirmar vários nomes prováveis de clientes como `Receita de vendas`.
+- GPT-5.6 Luna integrado para sugerir **somente nomes de saídas ainda desconhecidos**, em lote e de forma conservadora.
+- O setor e a atividade da empresa são enviados como contexto para a Luna.
+- Sugestões da Luna **não viram regra automaticamente**: somente após confirmação do usuário.
+- Biblioteca global continua compartilhando classificações de empresas conhecidas como CELESC, CASAN, Google Ads, Superfrete etc.
+- Pessoas físicas e regras específicas continuam isoladas por empresa.
+
+## Filosofia da classificação
+
+1. Regra já ensinada pela própria empresa.
+2. Biblioteca global de fornecedores conhecidos.
+3. Reconhecimento de transferência entre contas próprias.
+4. Entrada positiva recebida: sugestão de `Receita de vendas`.
+5. Saída desconhecida: Luna sugere em lote, se ativada.
+6. Usuário confirma uma única vez e o sistema aprende.
+
+A regra aprendida é sempre salva como **entidade + direção**. Assim, uma pessoa pode ser `Receita de vendas` quando aparece como entrada e ter outra classificação quando aparece como saída.
 
 ## Subir no Railway
 
-1. Crie um repositório no GitHub e envie todo este projeto.
-2. No Railway, crie um projeto a partir do GitHub.
-3. Adicione um serviço PostgreSQL.
-4. Configure as variáveis de `.env.example`.
-5. O Railway executará o build e iniciará o servidor Express, que também serve o frontend compilado.
+1. Envie todo este projeto para o GitHub.
+2. No Railway, crie o serviço a partir do repositório.
+3. Adicione PostgreSQL no mesmo projeto.
+4. Configure as variáveis descritas em `docs/variaveis-railway.md`.
+5. Faça o deploy.
 
-### Variáveis mínimas
-
-- `DATABASE_URL`: use a variável disponibilizada pelo PostgreSQL do Railway.
-- `JWT_SECRET`: chave longa e aleatória.
-- `NODE_ENV=production`
-- `APP_NAME=Claria`
-- `APP_URL`: URL pública do serviço.
-
-### Variáveis opcionais de IA
-
-- `AI_ENABLED=false` nesta primeira versão.
-- `OPENAI_API_KEY` e `OPENAI_MODEL` ficam preparados para a fase de adaptação/classificação por IA.
+O `DATABASE_URL` deve apontar para o PostgreSQL do Railway. Não defina `PORT`: o Railway injeta automaticamente.
 
 ## Desenvolvimento local
 
 ```bash
 npm install
 npm run install:all
-# configure server/.env ou exporte DATABASE_URL
 npm run dev
 ```
 
-O frontend usa `http://localhost:5173` e encaminha `/api` para `http://localhost:3000`.
-
-## Estrutura de pasta recomendada ao cliente
-
-```text
-Claria Dados/
-├── Encante Natural/
-│   ├── Bancos/
-│   ├── Cartoes/
-│   ├── Caixa/
-│   ├── Vendas/
-│   ├── Compras/
-│   └── Estoque/
-└── Outra Empresa/
-    └── ...
-```
-
-A subdivisão é opcional: a aplicação também tenta reconhecer o tipo pelo conteúdo.
-
 ## Privacidade
 
-Não publique extratos, faturas ou planilhas reais no GitHub. O projeto foi entregue sem dados pessoais dos arquivos usados como referência.
+Não publique extratos, faturas, planilhas ou chaves reais no GitHub. Os arquivos financeiros originais não são persistidos por padrão (`STORE_ORIGINAL_FILES=false`). A OpenAI recebe somente os nomes/descritivos mínimos dos favorecidos que ainda precisam de sugestão quando a Luna está habilitada.
