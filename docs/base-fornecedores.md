@@ -1,4 +1,4 @@
-# Base Excel de fornecedores — Claria v0.1.2
+# Base Excel de fornecedores — Claria v0.1.3
 
 A base pode ficar na mesma pasta dos demais arquivos da empresa.
 

@@ -74,7 +74,7 @@ function App(){
       <div className="side-top"><Logo/><button className="icon-btn close" onClick={()=>setMenu(false)}><X/></button></div>
       <div className="company"><Building2/><div><small>Empresa</small><b>{data.company?.name||'Minha empresa'}</b></div><ChevronDown/></div>
       <nav>{nav.map(([id,I,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMenu(false)}}><I size={20}/>{label}</button>)}</nav>
-      <div className="side-bottom"><button className={page==='config'?'active':''} onClick={()=>{setPage('config');setMenu(false)}}><Settings size={19}/>Configurações</button><span>Claria v0.1.2</span></div>
+      <div className="side-bottom"><button className={page==='config'?'active':''} onClick={()=>{setPage('config');setMenu(false)}}><Settings size={19}/>Configurações</button><span>Claria v0.1.3</span></div>
     </aside>
     <main><header><button className="icon-btn mobile" onClick={()=>setMenu(true)}><Menu/></button><div><h1>{title}</h1><p>{page==='inicio'?'Sua empresa em uma visão simples.':page==='config'?'Cadastros que ensinam como o Claria deve trabalhar.':'Informações organizadas para você decidir.'}</p></div><div className="master-chip">MASTER</div></header>
 

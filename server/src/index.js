@@ -176,8 +176,6 @@ async function buildDre(cid) {
   return {sections,result,revenue}
 }
 
-app.get('/api/health',(req,res)=>res.json({ok:true,version:'0.1.2',db:Boolean(pool),ai:process.env.AI_ENABLED==='true',model:process.env.OPENAI_MODEL||'gpt-5.6-luna'}))
-
 app.get('/api/company',async(req,res)=>{if(!pool)return res.json(demo.company);const cid=await companyId();res.json(await getCompany(cid))})
 app.put('/api/company',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=await companyId();const {name,document,sector,activity}=req.body;await pool.query(`UPDATE companies SET name=COALESCE(NULLIF($2,''),name),document=COALESCE($3,document),sector=$4,activity=$5 WHERE id=$1`,[cid,name||'',document??null,sector??null,activity??null]);res.json(await getCompany(cid))})
 
@@ -335,6 +333,24 @@ app.post('/api/classification-rules',async(req,res)=>{
   res.json({ok:true})
 })
 
+app.get('/api/health', async (req,res)=>{
+  if(!pool) return res.json({ok:true,version:'0.1.3',database:'not_configured'})
+  try{
+    const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`)
+    res.json({ok:true,version:'0.1.3',database:'ok',schema:r.rows[0]?.value||'unknown'})
+  }catch(e){
+    res.status(503).json({ok:false,version:'0.1.3',database:'migration_failed',message:e.message})
+  }
+})
+
 const dist=path.resolve(__dirname,'../../client/dist')
 if(fs.existsSync(dist)){app.use(express.static(dist));app.get('*',(req,res)=>res.sendFile(path.join(dist,'index.html')))}
-initDb().then(()=>app.listen(PORT,()=>console.log(`Claria v0.1.2 on :${PORT}`))).catch(e=>{console.error('DB init failed',e);app.listen(PORT,()=>console.log(`Claria sem DB on :${PORT}`))})
+initDb()
+  .then(()=>app.listen(PORT,()=>console.log(`Claria v0.1.3 on :${PORT}`)))
+  .catch(e=>{
+    console.error('DB init failed',e)
+    // Com DATABASE_URL configurada, não iniciamos uma aplicação parcialmente migrada.
+    // O Railway reinicia o serviço e mantém o erro explícito no log, evitando endpoints
+    // que consultem tabelas ainda inexistentes e derrubem o processo depois.
+    process.exit(1)
+  })

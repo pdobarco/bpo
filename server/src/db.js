@@ -57,67 +57,158 @@ const defaultAccounts = [
 
 export async function initDb() {
   if (!pool) return false
+
+  // IMPORTANTE: as migrações são executadas em etapas. Bancos criados nas versões
+  // anteriores já possuem algumas tabelas, mas não as colunas novas da v0.1.2+.
+  // Criar índices antes de adicionar essas colunas fazia o PostgreSQL abortar o init.
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`)
+
+  // 1) Estrutura-base que existe desde as primeiras versões.
   await pool.query(`
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE TABLE IF NOT EXISTS companies(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, document TEXT,
-  sector TEXT, activity TEXT, created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS source_files(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  name TEXT NOT NULL, hash TEXT NOT NULL, kind TEXT, status TEXT DEFAULT 'IMPORTED', record_count INT DEFAULT 0,
-  confidence NUMERIC DEFAULT 0, created_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,hash)
-);
-CREATE TABLE IF NOT EXISTS chart_accounts(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  code TEXT, name TEXT NOT NULL, parent_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL,
-  account_type TEXT NOT NULL DEFAULT 'EXPENSE', dre_section TEXT, dre_order INT DEFAULT 100,
-  is_group BOOLEAN DEFAULT false, active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(company_id,code)
-);
-CREATE TABLE IF NOT EXISTS transactions(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL, occurred_at TIMESTAMPTZ,
-  description TEXT NOT NULL, normalized_party TEXT, counterparty_document TEXT, direction TEXT NOT NULL, amount NUMERIC(14,2) NOT NULL,
-  gross_amount NUMERIC(14,2), fee_amount NUMERIC(14,2), net_amount NUMERIC(14,2), category TEXT,
-  account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL,
-  classification_confidence NUMERIC DEFAULT 0, classification_status TEXT DEFAULT 'PENDING',
-  classification_source TEXT, status TEXT DEFAULT 'OPEN', external_id TEXT, raw JSONB, created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS classification_rules(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), scope TEXT NOT NULL DEFAULT 'GLOBAL',
-  company_id UUID REFERENCES companies(id) ON DELETE CASCADE, pattern TEXT NOT NULL,
-  normalized_party TEXT, entity_document TEXT, direction TEXT NOT NULL DEFAULT 'ANY', category TEXT NOT NULL,
-  account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL,
-  confidence NUMERIC DEFAULT 100, source TEXT DEFAULT 'MANUAL', use_count INT DEFAULT 0,
-  confirmation_count INT DEFAULT 0, source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL,
-  metadata JSONB DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS global_rule_confirmations(
-  rule_id UUID REFERENCES classification_rules(id) ON DELETE CASCADE,
-  company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY(rule_id,company_id)
-);
-CREATE TABLE IF NOT EXISTS company_accounts(
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
-  label TEXT NOT NULL, institution TEXT, document TEXT, bank_code TEXT, agency TEXT, account TEXT,
-  aliases JSONB DEFAULT '[]'::jsonb, active BOOLEAN DEFAULT true, created_at TIMESTAMPTZ DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_tx_company_party ON transactions(company_id,normalized_party,direction);
-CREATE INDEX IF NOT EXISTS idx_tx_counterparty_document ON transactions(company_id,counterparty_document);
-CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(company_id,account_id);
-CREATE INDEX IF NOT EXISTS idx_rules_company_party ON classification_rules(company_id,normalized_party,direction);
-CREATE INDEX IF NOT EXISTS idx_rules_global_document ON classification_rules(entity_document,direction) WHERE scope='GLOBAL';
-CREATE INDEX IF NOT EXISTS idx_rules_global_party ON classification_rules(normalized_party,direction) WHERE scope='GLOBAL';
-CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order);
-`)
+    CREATE TABLE IF NOT EXISTS companies(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      document TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS source_files(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      kind TEXT,
+      status TEXT DEFAULT 'IMPORTED',
+      record_count INT DEFAULT 0,
+      confidence NUMERIC DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(company_id,hash)
+    )
+  `)
 
-  // Migrações seguras para bancos das versões anteriores.
-  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS sector TEXT; ALTER TABLE companies ADD COLUMN IF NOT EXISTS activity TEXT;`)
-  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS classification_status TEXT DEFAULT 'PENDING'; ALTER TABLE transactions ADD COLUMN IF NOT EXISTS classification_source TEXT; ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_document TEXT; ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL;`)
-  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'ANY'; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'MANUAL'; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS entity_document TEXT; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS confirmation_count INT DEFAULT 0; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb; ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now(); ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL;`)
+  // 2) Tabelas novas independentes. chart_accounts precisa existir antes de
+  // adicionarmos account_id em transactions/classification_rules.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS chart_accounts(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      code TEXT,
+      name TEXT NOT NULL,
+      parent_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL,
+      account_type TEXT NOT NULL DEFAULT 'EXPENSE',
+      dre_section TEXT,
+      dre_order INT DEFAULT 100,
+      is_group BOOLEAN DEFAULT false,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      UNIQUE(company_id,code)
+    )
+  `)
 
-  await pool.query(`UPDATE transactions SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas'; UPDATE classification_rules SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas';`)
+  // 3) Cria as tabelas legadas no formato mínimo, caso ainda não existam.
+  // As colunas evolutivas entram logo depois via ALTER TABLE.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transactions(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL,
+      occurred_at TIMESTAMPTZ,
+      description TEXT NOT NULL,
+      normalized_party TEXT,
+      direction TEXT NOT NULL,
+      amount NUMERIC(14,2) NOT NULL,
+      gross_amount NUMERIC(14,2),
+      fee_amount NUMERIC(14,2),
+      net_amount NUMERIC(14,2),
+      category TEXT,
+      classification_confidence NUMERIC DEFAULT 0,
+      status TEXT DEFAULT 'OPEN',
+      external_id TEXT,
+      raw JSONB,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS classification_rules(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      scope TEXT NOT NULL DEFAULT 'GLOBAL',
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      pattern TEXT NOT NULL,
+      normalized_party TEXT,
+      category TEXT NOT NULL,
+      confidence NUMERIC DEFAULT 100,
+      use_count INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+
+  // 4) Migrações incrementais. Só depois delas criamos índices que usam as novas colunas.
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS sector TEXT`)
+  await pool.query(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS activity TEXT`)
+
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS classification_status TEXT DEFAULT 'PENDING'`)
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS classification_source TEXT`)
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS counterparty_document TEXT`)
+  await pool.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL`)
+
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'ANY'`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'MANUAL'`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS entity_document TEXT`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS confirmation_count INT DEFAULT 0`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()`)
+  await pool.query(`ALTER TABLE classification_rules ADD COLUMN IF NOT EXISTS account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL`)
+
+  // 5) Estruturas adicionais da memória compartilhada e das contas próprias.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS global_rule_confirmations(
+      rule_id UUID REFERENCES classification_rules(id) ON DELETE CASCADE,
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY(rule_id,company_id)
+    )
+  `)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS company_accounts(
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      institution TEXT,
+      document TEXT,
+      bank_code TEXT,
+      agency TEXT,
+      account TEXT,
+      aliases JSONB DEFAULT '[]'::jsonb,
+      active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+
+  // 6) Índices somente após garantir que todas as colunas existem.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_company_party ON transactions(company_id,normalized_party,direction)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_counterparty_document ON transactions(company_id,counterparty_document)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(company_id,account_id)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_rules_company_party ON classification_rules(company_id,normalized_party,direction)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_rules_global_document ON classification_rules(entity_document,direction) WHERE scope='GLOBAL'`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_rules_global_party ON classification_rules(normalized_party,direction) WHERE scope='GLOBAL'`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
+
+  // Marca a versão do schema para diagnóstico futuro.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_meta(
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.1.3',now())
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
+
+  await pool.query(`UPDATE transactions SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas'`)
+  await pool.query(`UPDATE classification_rules SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas'`)
 
   const c = await pool.query('SELECT id FROM companies LIMIT 1')
   if (!c.rowCount) {

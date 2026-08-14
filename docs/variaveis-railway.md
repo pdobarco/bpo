@@ -1,4 +1,4 @@
-# Variáveis do Railway — Claria v0.1.2
+# Variáveis do Railway — Claria v0.1.3
 
 Cole estas variáveis no **RAW Editor** do serviço Web. Ajuste `APP_URL`, `DATABASE_URL` e a chave da OpenAI.
 
