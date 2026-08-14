@@ -1,52 +1,70 @@
-import { pool } from '../db.js'
-import { extractParty, normalize, isIncomingTransfer, isOutgoingTransfer } from './entity.js'
+import { pool, getCompanyAccounts, findAccountByName } from '../db.js'
+import { accountMatchesDescription, extractDocument, extractParty, normalize, isIncomingTransfer, isOutgoingTransfer } from './entity.js'
+
+async function resultWithAccount(companyId, result, party, document) {
+  const account = result.account_id ? {id:result.account_id} : await findAccountByName(companyId, result.category)
+  return {
+    ...result,
+    normalized_party: result.normalized_party || party,
+    counterparty_document: document || null,
+    account_id: account?.id || null
+  }
+}
 
 export async function classify(transaction, companyId, company = null) {
   const description = transaction?.description || ''
   const txt = normalize(description)
   const direction = transaction?.direction || (Number(transaction?.amount) >= 0 ? 'ENTRADA' : 'SAIDA')
   const party = extractParty(description)
+  const document = extractDocument(description)
 
   if (pool) {
-    // 1) Regra aprendida da empresa: entidade + direção. É a regra mais forte.
+    // 1) Regra ensinada pela própria empresa: sempre tem prioridade.
     const exact = await pool.query(`
-      SELECT category, normalized_party, confidence, scope, source
+      SELECT category, normalized_party, entity_document, confidence, scope, source, account_id
       FROM classification_rules
       WHERE company_id=$1 AND scope='COMPANY'
-        AND normalized_party=$2
+        AND (normalized_party=$2 OR ($4 IS NOT NULL AND entity_document=$4))
         AND (direction=$3 OR direction='ANY')
       ORDER BY CASE WHEN direction=$3 THEN 0 ELSE 1 END, confidence DESC
-      LIMIT 1`, [companyId, party, direction])
-    if (exact.rowCount) return {...exact.rows[0], normalized_party: party, status:'CONFIRMED'}
+      LIMIT 1`, [companyId, party, direction, document])
+    if (exact.rowCount) return resultWithAccount(companyId,{...exact.rows[0],status:'CONFIRMED'},party,document)
 
-    // 2) Biblioteca global compartilhada: marcas/fornecedores reconhecíveis.
+    // 2) Contas próprias cadastradas + nome/CNPJ da empresa. Evita transformar transferência em receita/despesa.
+    if (isIncomingTransfer(description) || isOutgoingTransfer(description)) {
+      const accounts = await getCompanyAccounts(companyId)
+      const ownDocument = String(company?.document || '').replace(/\D/g,'')
+      const descDigits = String(description).replace(/\D/g,'')
+      const ownName = normalize(company?.name || '')
+      const ownByDocument = ownDocument.length >= 8 && descDigits.includes(ownDocument)
+      const ownByName = ownName.length >= 6 && txt.includes(ownName)
+      const ownByAccount = accounts.some(a => accountMatchesDescription(a, description))
+      if (ownByDocument || ownByName || ownByAccount) {
+        return resultWithAccount(companyId,{category:'Transferência entre contas próprias',confidence:99,scope:'COMPANY',source:'HEURISTIC',status:'AUTO'},party,document)
+      }
+    }
+
+    // 3) Biblioteca global compartilhada. CNPJ exato vem antes do nome.
     const global = await pool.query(`
-      SELECT category, normalized_party, confidence, scope, source
+      SELECT category, normalized_party, entity_document, confidence, confirmation_count, scope, source
       FROM classification_rules
       WHERE scope='GLOBAL'
         AND (direction=$2 OR direction='ANY')
-        AND $1 LIKE '%' || pattern || '%'
-      ORDER BY confidence DESC, length(pattern) DESC
-      LIMIT 1`, [txt, direction])
-    if (global.rowCount) return {...global.rows[0], normalized_party: global.rows[0].normalized_party || party, status:'AUTO'}
-  }
-
-  // 3) Transferência entre contas próprias: CNPJ/CPF ou nome da própria empresa na descrição.
-  if (isIncomingTransfer(description) || isOutgoingTransfer(description)) {
-    const ownDocument = String(company?.document || '').replace(/\D/g, '')
-    const descDigits = String(description).replace(/\D/g, '')
-    const ownName = normalize(company?.name || '')
-    const ownByDocument = ownDocument.length >= 8 && descDigits.includes(ownDocument)
-    const ownByName = ownName.length >= 6 && txt.includes(ownName)
-    if (ownByDocument || ownByName) {
-      return {category:'Transferência entre contas', normalized_party:party, confidence:99, scope:'COMPANY', source:'HEURISTIC', status:'AUTO'}
+        AND (($3 IS NOT NULL AND entity_document=$3) OR $1 LIKE '%' || pattern || '%')
+      ORDER BY CASE WHEN $3 IS NOT NULL AND entity_document=$3 THEN 0 ELSE 1 END,
+               confidence DESC, confirmation_count DESC, length(pattern) DESC
+      LIMIT 1`, [txt, direction, document])
+    if (global.rowCount) {
+      const g = global.rows[0]
+      const status = Number(g.confidence) >= 95 || Number(g.confirmation_count) >= 3 ? 'AUTO' : 'SUGGESTED'
+      return resultWithAccount(companyId,{...g,status},party,document)
     }
   }
 
-  // 4) Entrada positiva de pessoa/entidade desconhecida: normalmente receita, mas exige confirmação.
+  // 4) Entrada recebida desconhecida: normalmente receita, mas ainda pede confirmação.
   if (direction === 'ENTRADA' && isIncomingTransfer(description)) {
-    return {category:'Receita de vendas', normalized_party:party, confidence:78, scope:null, source:'HEURISTIC', status:'SUGGESTED'}
+    return resultWithAccount(companyId,{category:'Receita de vendas',confidence:78,scope:null,source:'HEURISTIC',status:'SUGGESTED'},party,document)
   }
 
-  return {category:'A classificar', normalized_party:party, confidence:0, scope:null, source:null, status:'PENDING'}
+  return {category:'A classificar',normalized_party:party,counterparty_document:document,account_id:null,confidence:0,scope:null,source:null,status:'PENDING'}
 }
