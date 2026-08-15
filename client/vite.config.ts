@@ -7,17 +7,17 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'logo-mark.svg'],
+      includeAssets: ['clara-logo-oficial.png', 'clara-logo-original.png', 'clara-marca-oficial.png', 'clara-icon-512.png'],
       manifest: {
-        name: 'Claria — gestão simples',
-        short_name: 'Claria',
-        description: 'Gestão financeira simples, conciliação e DRE.',
-        theme_color: '#0f2847',
+        name: 'Clara BPO Financeiro',
+        short_name: 'Clara',
+        description: 'BPO financeiro, conciliação, DRE e gestão multiempresa.',
+        theme_color: '#082a66',
         background_color: '#f7f9fc',
         display: 'standalone',
         start_url: '/',
         icons: [
-          { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }
+          { src: '/clara-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' }
         ]
       }
     })

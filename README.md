@@ -1,154 +1,72 @@
-# Claria v0.3.4 — Correção de build da Base Moderna
+# Clara BPO Financeiro — v0.4.0
 
-PWA financeira/BPO voltada a usuários não técnicos. A v0.3.4 mantém a base moderna da v0.3.0 e corrige a falha TypeScript encontrada no segundo build do Railway, sem alterar dados nem o schema do PostgreSQL.
+Versão que adiciona autenticação, multiempresa, administração de usuários/empresas, demonstração pública e a nova identidade visual **Clara BPO Financeiro**.
 
-## Stack da v0.3.4
+## O que entrou
 
-### Correções de build acumuladas
-
-- **v0.3.1:** atualizou o SDK oficial `openai` para `7.4.0`, eliminando o conflito de peer dependency com Zod 4;
-- **v0.3.1:** passou a instalar as dependências de desenvolvimento necessárias para TypeScript/Vite no Railway;
-- **v0.3.4:** corrige o `TS2769` em `server/src/index.ts`: o registro de schemas de validação deixou de usar `new Map([...])` com schemas Zod heterogêneos e passou a usar um `Record<string, any>`, eliminando o overload que causava o `TS2769`;
-- não usa `--force` nem `--legacy-peer-deps`;
-- não altera tabelas, dados, migrations ou a `DATABASE_URL`.
-
-
-### Frontend
-- React 19
-- TypeScript
-- Vite 8
-- TanStack Query 5 para estado vindo da API
-- Zod 4 para validar respostas críticas da API
-- PWA com `vite-plugin-pwa`
-
-### Backend
-- Node.js 24 LTS
-- TypeScript
-- Fastify 5
-- Zod 4 para validar corpos de rotas críticas
-- Drizzle ORM + Drizzle Kit
-- PostgreSQL
-
-### Infraestrutura
-- GitHub → Railway
-- PostgreSQL continua sendo o serviço de banco no Railway
-- **Drizzle não é um serviço separado:** ele roda dentro da aplicação Node e usa a mesma `DATABASE_URL`.
-
-## O que muda para o usuário
-
-A interface continua simples. A maior parte desta versão é de fundação técnica.
-
-Também permanecem as correções da v0.2.1:
-- “Todos os lançamentos” recarrega de forma confiável;
-- erro de API não aparece como `0 lançamentos`;
-- competência vazia usa a data do evento;
-- datas ISO não aparecem como `Invalid Date`;
-- competência e Plano de Contas podem ser editados após a confirmação;
-- edição pode afetar apenas o lançamento ou também a regra futura;
-- alterações são auditadas e recalculam a DRE;
-- cabeçalhos da tabela são clicáveis para ordenar;
-- resumo de entradas/saídas na tabela;
-- valores da DRE ficam mais próximos dos títulos.
-
-## PostgreSQL existente — NÃO APAGAR
-
-A base v0.3.x foi criada para adotar o banco já usado pelo Claria.
-
-No primeiro startup:
-1. o bootstrap compatível garante, com operações idempotentes, que tabelas/colunas antigas existam;
-2. competências legadas vazias recebem a data do evento;
-3. o schema TypeScript do Drizzle passa a representar a estrutura do banco;
-4. o migrador do Drizzle registra/aplica a migration de adoção;
-5. o `schema_version` passa para `0.3.0`.
-
-Não recrie o PostgreSQL e não troque a `DATABASE_URL`.
-
-> A adoção é propositalmente conservadora. Consultas financeiras complexas continuam usando SQL já testado nesta versão, enquanto acessos centrais e o schema já usam Drizzle. Isso reduz o risco de alterar resultados financeiros apenas para trocar a tecnologia.
+- nova tela inicial/login inspirada no mockup aprovado;
+- aplicação da **logo oficial enviada**, sem redesenho ou alteração de cores/tipografia; o arquivo original também foi preservado em `client/public/clara-logo-original.png`;
+- usuário master padrão: `thomas.muller@bateriasmoura.com`;
+- sessões seguras com token aleatório armazenado apenas como hash no PostgreSQL;
+- perfis `MASTER`, `ADMIN`, `OPERATOR` e `VIEWER`;
+- cadastro público de nova conta + nova empresa;
+- seletor de empresa no topo para usuários vinculados a mais de uma empresa;
+- área **Administração** para o MASTER cadastrar empresas e criar/editar usuários, perfis e vínculos;
+- rota pública `/demonstracao` com dados 100% fictícios e sem gravação;
+- novo layout interno com menu lateral azul-marinho, cards claros e dashboard executivo;
+- preservadas as funcionalidades anteriores de arquivos, lançamentos, edição de competência/plano, conciliação, DRE, fechamento e auditoria;
+- Drizzle/PostgreSQL preservados; migração `0001_auth_multiempresa.sql` adiciona somente as novas estruturas.
 
 ## Deploy no Railway
 
 1. Substitua o conteúdo do repositório pelos arquivos desta versão.
-2. Faça commit/push no GitHub.
-3. Mantenha o PostgreSQL atual.
-4. Mantenha as variáveis descritas em `docs/variaveis-railway.md`.
-5. O Railway executará:
+2. **Não apague o PostgreSQL atual.**
+3. Mantenha a mesma `DATABASE_URL`.
+4. Adicione nas Variables do Railway:
 
-```text
-Build: npm run install:all && npm run build
-Start: npm start
-Healthcheck: /api/health
+```env
+MASTER_EMAIL=thomas.muller@bateriasmoura.com
+MASTER_INITIAL_PASSWORD=UMA_SENHA_FORTE_COM_PELO_MENOS_8_CARACTERES
+SESSION_DAYS=30
 ```
 
-6. Após o deploy, abra:
-
-```text
-https://SEU-APP.up.railway.app/api/health
-```
+5. Mantenha também as variáveis de IA e upload que já existiam.
+6. Faça o deploy.
+7. Confira `/api/health`.
 
 Resposta esperada:
 
 ```json
 {
   "ok": true,
-  "version": "0.3.4",
+  "version": "0.4.0",
   "database": "ok",
-  "schema": "0.3.0"
+  "schema": "0.4.0"
 }
 ```
 
-Depois faça o checklist em `docs/teste-aceite-v0.3.4.md`.
+## Primeiro login MASTER
 
-## Comandos úteis
+Use:
 
-```bash
-# desenvolvimento
-npm install
-npm run install:all
-npm run dev
+- e-mail: `thomas.muller@bateriasmoura.com`
+- senha: o valor definido em `MASTER_INITIAL_PASSWORD` no Railway.
 
-# validar TypeScript + gerar frontend/backend
-npm run typecheck
-npm run build
+A variável `MASTER_INITIAL_PASSWORD` só preenche a senha quando o master ainda não possui senha cadastrada. Reiniciar o serviço não redefine uma senha já existente.
 
-# Drizzle (executar dentro de /server com DATABASE_URL configurada)
-npm run db:pull
-npm run db:generate
-npm run db:migrate
-```
+## Demonstração
 
-Para este banco já existente, leia `docs/migracao-drizzle.md` antes de usar comandos de alteração de schema diretamente em produção.
-
-## Estrutura principal
+Acesse diretamente:
 
 ```text
-/client
-  /src
-    main.tsx
-    api.ts
-    queryClient.ts
-  vite.config.ts
-/server
-  /src
-    index.ts
-    db.ts
-    /db/schema.ts
-    /parsers
-    /services
-  /drizzle
-  drizzle.config.ts
-/docs
+/demonstracao
 ```
 
-## IA / Luna
+A demonstração usa somente dados fictícios no frontend e não acessa nem altera os dados reais das empresas.
 
-A Luna continua sendo usada somente quando agrega valor:
-- sugestão em lote para saídas desconhecidas;
-- adaptação de PDF quando o parser normal não consegue extrair lançamentos.
+## Perfis
 
-Regras conhecidas, biblioteca compartilhada, CNPJ, memória da empresa e parsers continuam tendo prioridade.
-
-## Segurança
-
-- Não coloque `OPENAI_API_KEY` no GitHub.
-- Não publique extratos ou planilhas reais no repositório.
-- A v0.3.4 não exige serviço adicional no Railway para Drizzle.
+- **MASTER:** todas as empresas + administração global.
+- **ADMIN:** administração financeira/configurações das empresas vinculadas.
+- **OPERATOR:** importação, classificação e operação; sem alterações estruturais da empresa.
+- **VIEWER:** somente leitura.

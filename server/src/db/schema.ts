@@ -7,6 +7,8 @@ export const companies = pgTable('companies', {
   document: text('document'),
   sector: text('sector'),
   activity: text('activity'),
+  active: boolean('active').default(true),
+  isDemo: boolean('is_demo').default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
 })
 
@@ -165,3 +167,32 @@ export const schemaMeta = pgTable('schema_meta', {
   value: text('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
 })
+
+
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  email: text('email').notNull(),
+  name: text('name').notNull(),
+  passwordHash: text('password_hash'),
+  role: text('role').notNull().default('OPERATOR'),
+  status: text('status').notNull().default('ACTIVE'),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
+})
+
+export const userCompanies = pgTable('user_companies', {
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }).notNull(),
+  role: text('role').notNull().default('OPERATOR'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
+}, table => ({ pk: primaryKey({ columns: [table.userId, table.companyId] }) }))
+
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
+}, table => ({ tokenHashUq: uniqueIndex('auth_sessions_token_hash_uq').on(table.tokenHash) }))

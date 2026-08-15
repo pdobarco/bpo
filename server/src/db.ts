@@ -68,6 +68,8 @@ export async function initDb() {
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, document TEXT, created_at TIMESTAMPTZ DEFAULT now())`)
   await addColumn('companies', 'sector TEXT')
   await addColumn('companies', 'activity TEXT')
+  await addColumn('companies', 'active BOOLEAN DEFAULT true')
+  await addColumn('companies', 'is_demo BOOLEAN DEFAULT false')
 
   await pool.query(`CREATE TABLE IF NOT EXISTS source_files(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
@@ -155,6 +157,22 @@ export async function initDb() {
     action TEXT NOT NULL, entity_type TEXT, entity_id TEXT, details JSONB DEFAULT '{}'::jsonb,
     actor TEXT DEFAULT 'MASTER', created_at TIMESTAMPTZ DEFAULT now())`)
 
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS users(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT NOT NULL, name TEXT NOT NULL,
+    password_hash TEXT, role TEXT NOT NULL DEFAULT 'OPERATOR', status TEXT NOT NULL DEFAULT 'ACTIVE',
+    last_login_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`)
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uq ON users(lower(email))`)
+  await pool.query(`CREATE TABLE IF NOT EXISTS user_companies(
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE, company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'OPERATOR', created_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY(user_id,company_id))`)
+  await pool.query(`CREATE TABLE IF NOT EXISTS auth_sessions(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, last_seen_at TIMESTAMPTZ DEFAULT now(),
+    created_at TIMESTAMPTZ DEFAULT now())`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id,expires_at)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_companies_company ON user_companies(company_id,user_id)`)
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_company_party ON transactions(company_id,normalized_party,direction)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_counterparty_document ON transactions(company_id,counterparty_document)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(company_id,account_id)`)
@@ -168,7 +186,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.3.0',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.4.0',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
   // O banco do Claria nasceu antes do Drizzle. O bootstrap acima é intencionalmente idempotente para adotar bancos existentes;
