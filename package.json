@@ -1,12 +1,12 @@
 {
   "name": "claria-bpo",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
-    "install:all": "npm --prefix client install && npm --prefix server install",
+    "install:all": "npm --prefix client install --include=dev && npm --prefix server install --include=dev",
     "build": "npm --prefix server run build && npm --prefix client run build",
     "start": "npm --prefix server start",
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",

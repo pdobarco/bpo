@@ -271,7 +271,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=await companyId(),{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.3.0',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.3.0',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.3.0',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.3.1',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.3.1',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.3.1',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -281,6 +281,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Claria v0.3.0 on :${PORT}`)
+  console.log(`Claria v0.3.1 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})
