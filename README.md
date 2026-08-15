@@ -1,14 +1,14 @@
-# Claria v0.3.2 — Correção de build da Base Moderna
+# Claria v0.3.3 — Correção de build da Base Moderna
 
-PWA financeira/BPO voltada a usuários não técnicos. A v0.3.2 mantém a base moderna da v0.3.0 e corrige a falha TypeScript encontrada no segundo build do Railway, sem alterar dados nem o schema do PostgreSQL.
+PWA financeira/BPO voltada a usuários não técnicos. A v0.3.3 mantém a base moderna da v0.3.0 e corrige a falha TypeScript encontrada no segundo build do Railway, sem alterar dados nem o schema do PostgreSQL.
 
-## Stack da v0.3.2
+## Stack da v0.3.3
 
 ### Correções de build acumuladas
 
 - **v0.3.1:** atualizou o SDK oficial `openai` para `7.4.0`, eliminando o conflito de peer dependency com Zod 4;
 - **v0.3.1:** passou a instalar as dependências de desenvolvimento necessárias para TypeScript/Vite no Railway;
-- **v0.3.2:** corrige o `TS2769` em `server/src/index.ts`: o mapa de schemas de validação agora aceita explicitamente schemas Zod heterogêneos, em vez de o TypeScript inferir o formato do primeiro schema para todos os demais;
+- **v0.3.3:** corrige o `TS2769` em `server/src/index.ts`: o registro de schemas de validação deixou de usar `new Map([...])` com schemas Zod heterogêneos e passou a usar um `Record<string, any>`, eliminando o overload que causava o `TS2769`;
 - não usa `--force` nem `--legacy-peer-deps`;
 - não altera tabelas, dados, migrations ou a `DATABASE_URL`.
 
@@ -90,13 +90,13 @@ Resposta esperada:
 ```json
 {
   "ok": true,
-  "version": "0.3.2",
+  "version": "0.3.3",
   "database": "ok",
   "schema": "0.3.0"
 }
 ```
 
-Depois faça o checklist em `docs/teste-aceite-v0.3.2.md`.
+Depois faça o checklist em `docs/teste-aceite-v0.3.3.md`.
 
 ## Comandos úteis
 
@@ -151,4 +151,4 @@ Regras conhecidas, biblioteca compartilhada, CNPJ, memória da empresa e parsers
 
 - Não coloque `OPENAI_API_KEY` no GitHub.
 - Não publique extratos ou planilhas reais no repositório.
-- A v0.3.2 não exige serviço adicional no Railway para Drizzle.
+- A v0.3.3 não exige serviço adicional no Railway para Drizzle.

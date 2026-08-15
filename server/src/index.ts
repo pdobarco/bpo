@@ -22,18 +22,19 @@ const server=Fastify({logger:true,bodyLimit:Math.max(3,mb)*1024*1024})
 await server.register(cors,{origin:true})
 await server.register(multipart,{limits:{fileSize:mb*1024*1024,files:100}})
 
-const bodySchemas: Map<string, any> = new Map([
-  ['PUT /api/company',z.object({name:z.string().optional(),document:z.string().nullable().optional(),sector:z.string().nullable().optional(),activity:z.string().nullable().optional()}).passthrough()],
-  ['POST /api/chart-accounts',z.object({code:z.string().optional(),name:z.string().min(1),parentId:z.string().nullable().optional(),accountType:z.string().optional(),dreSection:z.string().optional(),isGroup:z.boolean().optional()}).passthrough()],
-  ['PUT /api/chart-accounts/:id',z.object({code:z.string().optional(),name:z.string().optional(),parentId:z.string().nullable().optional(),accountType:z.string().optional(),dreSection:z.string().nullable().optional(),isGroup:z.boolean().optional(),active:z.boolean().optional()}).passthrough()],
-  ['PATCH /api/transactions/:id',z.object({competenceAt:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),accountId:z.string().uuid().or(z.literal('')).nullable().optional(),updateRule:z.boolean().optional()}).passthrough()],
-  ['POST /api/company-accounts',z.object({label:z.string().min(1),institution:z.string().optional(),document:z.string().optional(),bankCode:z.string().optional(),agency:z.string().optional(),account:z.string().optional(),aliases:z.array(z.string()).optional()}).passthrough()],
-  ['POST /api/expected-sources',z.object({kind:z.string().min(1),label:z.string().min(1),active:z.boolean().optional()}).passthrough()],
-  ['POST /api/periods/close',z.object({period:z.string().regex(/^\d{4}-\d{2}$/),force:z.boolean().optional()}).passthrough()],
-  ['POST /api/periods/reopen',z.object({period:z.string().regex(/^\d{4}-\d{2}$/)}).passthrough()],
-  ['POST /api/review-groups/classify',z.object({normalizedParty:z.string().min(1),counterpartyDocument:z.string().nullable().optional(),direction:z.string().min(1),category:z.string().min(1),remember:z.boolean().optional(),onlyIds:z.array(z.string().uuid()).optional()}).passthrough()],
-  ['POST /api/review-groups/classify-batch',z.object({items:z.array(z.object({normalizedParty:z.string(),counterpartyDocument:z.string().nullable().optional(),direction:z.string(),category:z.string()})).max(100)}).passthrough()]
-])
+const bodySchemas: Record<string, any> = {
+  'PUT /api/company': z.object({name:z.string().optional(),document:z.string().nullable().optional(),sector:z.string().nullable().optional(),activity:z.string().nullable().optional()}).passthrough(),
+  'POST /api/chart-accounts': z.object({code:z.string().optional(),name:z.string().min(1),parentId:z.string().nullable().optional(),accountType:z.string().optional(),dreSection:z.string().optional(),isGroup:z.boolean().optional()}).passthrough(),
+  'PUT /api/chart-accounts/:id': z.object({code:z.string().optional(),name:z.string().optional(),parentId:z.string().nullable().optional(),accountType:z.string().optional(),dreSection:z.string().nullable().optional(),isGroup:z.boolean().optional(),active:z.boolean().optional()}).passthrough(),
+  'PATCH /api/transactions/:id': z.object({competenceAt:z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),accountId:z.string().uuid().or(z.literal('')).nullable().optional(),updateRule:z.boolean().optional()}).passthrough(),
+  'POST /api/company-accounts': z.object({label:z.string().min(1),institution:z.string().optional(),document:z.string().optional(),bankCode:z.string().optional(),agency:z.string().optional(),account:z.string().optional(),aliases:z.array(z.string()).optional()}).passthrough(),
+  'POST /api/expected-sources': z.object({kind:z.string().min(1),label:z.string().min(1),active:z.boolean().optional()}).passthrough(),
+  'POST /api/periods/close': z.object({period:z.string().regex(/^\d{4}-\d{2}$/),force:z.boolean().optional()}).passthrough(),
+  'POST /api/periods/reopen': z.object({period:z.string().regex(/^\d{4}-\d{2}$/)}).passthrough(),
+  'POST /api/review-groups/classify': z.object({normalizedParty:z.string().min(1),counterpartyDocument:z.string().nullable().optional(),direction:z.string().min(1),category:z.string().min(1),remember:z.boolean().optional(),onlyIds:z.array(z.string().uuid()).optional()}).passthrough(),
+  'POST /api/review-groups/classify-batch': z.object({items:z.array(z.object({normalizedParty:z.string(),counterpartyDocument:z.string().nullable().optional(),direction:z.string(),category:z.string()})).max(100)}).passthrough()
+}
+
 
 function responseFacade(reply:any){
   const facade={
@@ -54,7 +55,7 @@ async function collectUploads(req:any){
 
 function registerRoute(method:any,url:string,...handlers:any[]){
   server.route({method,url,handler:async(req,reply)=>{
-    const schema=bodySchemas.get(`${method} ${url}`)
+    const schema=bodySchemas[`${method} ${url}`]
     if(schema){const parsed=schema.safeParse(req.body||{});if(!parsed.success)return reply.code(400).send({message:'Dados inválidos.',issues:parsed.error.issues});req.body=parsed.data}
     for(let i=0;i<handlers.length-1;i++)await handlers[i](req,reply)
     return handlers.at(-1)(req,responseFacade(reply))
@@ -271,7 +272,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=await companyId(),{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.3.2',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.3.2',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.3.2',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.3.3',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.3.3',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.3.3',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -281,6 +282,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Claria v0.3.2 on :${PORT}`)
+  console.log(`Claria v0.3.3 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})
