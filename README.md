@@ -1,28 +1,38 @@
-# Clara BPO Financeiro — v0.4.0
+# Clara BPO Financeiro — v0.4.1
 
-Versão que adiciona autenticação, multiempresa, administração de usuários/empresas, demonstração pública e a nova identidade visual **Clara BPO Financeiro**.
+Versão de refinamento visual que aproxima a aplicação do **mockup aprovado**, mantendo as funcionalidades da v0.4.0: autenticação, cadastro, multiempresa, administração MASTER e demonstração pública.
 
-## O que entrou
+## O que mudou na v0.4.1
 
-- nova tela inicial/login inspirada no mockup aprovado;
-- aplicação da **logo oficial enviada**, sem redesenho ou alteração de cores/tipografia; o arquivo original também foi preservado em `client/public/clara-logo-original.png`;
-- usuário master padrão: `thomas.muller@bateriasmoura.com`;
-- sessões seguras com token aleatório armazenado apenas como hash no PostgreSQL;
+- reconstrução da tela inicial/login para seguir a composição do mockup aprovado;
+- fundo externo claro e grande container branco arredondado;
+- lado esquerdo institucional com headline, benefícios, grafismos leves e personagem inspirada no mockup;
+- lado direito com card de login/cadastro mais compacto e elegante;
+- uso da **logo oficial exatamente como enviada**; o arquivo original foi preservado byte a byte em `client/public/clara-logo-original.png`;
+- novo dashboard interno mais próximo do mockup: menu lateral azul, KPIs executivos, DRE, gráfico Receita x Despesas e bloco de conciliação;
+- `/demonstracao` atualizado para usar a mesma linguagem visual com dados totalmente fictícios;
+- preservadas todas as regras e dados da v0.4.0;
+- nenhum novo ajuste estrutural no PostgreSQL: o schema continua `0.4.0`.
+
+O mockup aprovado também foi incluído como referência em `docs/mockup-aprovado-v0.4.1.png`.
+
+## Funcionalidades preservadas
+
+- login e cadastro;
+- usuário MASTER `thomas.muller@bateriasmoura.com`;
 - perfis `MASTER`, `ADMIN`, `OPERATOR` e `VIEWER`;
-- cadastro público de nova conta + nova empresa;
-- seletor de empresa no topo para usuários vinculados a mais de uma empresa;
-- área **Administração** para o MASTER cadastrar empresas e criar/editar usuários, perfis e vínculos;
-- rota pública `/demonstracao` com dados 100% fictícios e sem gravação;
-- novo layout interno com menu lateral azul-marinho, cards claros e dashboard executivo;
-- preservadas as funcionalidades anteriores de arquivos, lançamentos, edição de competência/plano, conciliação, DRE, fechamento e auditoria;
-- Drizzle/PostgreSQL preservados; migração `0001_auth_multiempresa.sql` adiciona somente as novas estruturas.
+- cadastro e administração de empresas;
+- vínculo de usuários a uma ou mais empresas;
+- rota pública `/demonstracao`;
+- arquivos, lançamentos, edição de competência/Plano de Contas, conciliação, DRE, fechamento e auditoria;
+- Drizzle + PostgreSQL + Railway.
 
 ## Deploy no Railway
 
-1. Substitua o conteúdo do repositório pelos arquivos desta versão.
-2. **Não apague o PostgreSQL atual.**
-3. Mantenha a mesma `DATABASE_URL`.
-4. Adicione nas Variables do Railway:
+1. Substitua os arquivos do repositório pelos desta versão.
+2. **Não apague nem recrie o PostgreSQL.**
+3. Mantenha exatamente a mesma `DATABASE_URL` usada na versão atual.
+4. Mantenha as variáveis abaixo:
 
 ```env
 MASTER_EMAIL=thomas.muller@bateriasmoura.com
@@ -30,43 +40,17 @@ MASTER_INITIAL_PASSWORD=UMA_SENHA_FORTE_COM_PELO_MENOS_8_CARACTERES
 SESSION_DAYS=30
 ```
 
-5. Mantenha também as variáveis de IA e upload que já existiam.
-6. Faça o deploy.
-7. Confira `/api/health`.
+5. Faça o deploy e confira `/api/health`.
 
 Resposta esperada:
 
 ```json
 {
   "ok": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "database": "ok",
   "schema": "0.4.0"
 }
 ```
 
-## Primeiro login MASTER
-
-Use:
-
-- e-mail: `thomas.muller@bateriasmoura.com`
-- senha: o valor definido em `MASTER_INITIAL_PASSWORD` no Railway.
-
-A variável `MASTER_INITIAL_PASSWORD` só preenche a senha quando o master ainda não possui senha cadastrada. Reiniciar o serviço não redefine uma senha já existente.
-
-## Demonstração
-
-Acesse diretamente:
-
-```text
-/demonstracao
-```
-
-A demonstração usa somente dados fictícios no frontend e não acessa nem altera os dados reais das empresas.
-
-## Perfis
-
-- **MASTER:** todas as empresas + administração global.
-- **ADMIN:** administração financeira/configurações das empresas vinculadas.
-- **OPERATOR:** importação, classificação e operação; sem alterações estruturais da empresa.
-- **VIEWER:** somente leitura.
+O schema continuar em `0.4.0` é intencional: a v0.4.1 é uma evolução visual/UX e não cria novas tabelas.

@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['clara-logo-oficial.png', 'clara-logo-original.png', 'clara-marca-oficial.png', 'clara-icon-512.png'],
+      includeAssets: ['clara-logo-oficial.png', 'clara-logo-original.png', 'clara-marca-oficial.png', 'clara-icon-512.png', 'clara-personagem-mockup.png'],
       manifest: {
         name: 'Clara BPO Financeiro',
         short_name: 'Clara',
