@@ -1,4 +1,4 @@
-# Variáveis do Railway — Claria v0.3.1
+# Variáveis do Railway — Claria v0.3.2
 
 A modernização para TypeScript/Fastify/Drizzle **não cria novas variáveis obrigatórias**.
 
@@ -27,4 +27,4 @@ MAX_UPLOAD_MB=25
 - Node 24 é solicitado pelo campo `engines` dos `package.json` e pelo `.nvmrc`.
 - Drizzle usa a própria `DATABASE_URL`; não existe `DRIZZLE_URL` nem serviço adicional.
 
-`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` continuam não sendo exigidos pela v0.3.1.
+`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` continuam não sendo exigidos pela v0.3.2.

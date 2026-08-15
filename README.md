@@ -1,14 +1,14 @@
-# Claria v0.3.1 — Correção de build da Base Moderna
+# Claria v0.3.2 — Correção de build da Base Moderna
 
-PWA financeira/BPO voltada a usuários não técnicos. A v0.3.1 mantém a base moderna da v0.3.0 e corrige o conflito de dependências que impedia o build no Railway, sem alterar os dados nem o schema do PostgreSQL.
+PWA financeira/BPO voltada a usuários não técnicos. A v0.3.2 mantém a base moderna da v0.3.0 e corrige a falha TypeScript encontrada no segundo build do Railway, sem alterar dados nem o schema do PostgreSQL.
 
-## Stack da v0.3.1
+## Stack da v0.3.2
 
-### Correção específica da v0.3.1
+### Correções de build acumuladas
 
-- atualiza o SDK oficial `openai` de 5.x para `7.4.0`, versão que aceita `zod` 4 como peer dependency;
-- mantém `zod` 4 no backend e no frontend;
-- força a instalação das dependências de desenvolvimento durante o build do Railway (`--include=dev`), pois TypeScript/Vite são necessários para compilar;
+- **v0.3.1:** atualizou o SDK oficial `openai` para `7.4.0`, eliminando o conflito de peer dependency com Zod 4;
+- **v0.3.1:** passou a instalar as dependências de desenvolvimento necessárias para TypeScript/Vite no Railway;
+- **v0.3.2:** corrige o `TS2769` em `server/src/index.ts`: o mapa de schemas de validação agora aceita explicitamente schemas Zod heterogêneos, em vez de o TypeScript inferir o formato do primeiro schema para todos os demais;
 - não usa `--force` nem `--legacy-peer-deps`;
 - não altera tabelas, dados, migrations ou a `DATABASE_URL`.
 
@@ -90,13 +90,13 @@ Resposta esperada:
 ```json
 {
   "ok": true,
-  "version": "0.3.1",
+  "version": "0.3.2",
   "database": "ok",
   "schema": "0.3.0"
 }
 ```
 
-Depois faça o checklist em `docs/teste-aceite-v0.3.1.md`.
+Depois faça o checklist em `docs/teste-aceite-v0.3.2.md`.
 
 ## Comandos úteis
 
@@ -151,4 +151,4 @@ Regras conhecidas, biblioteca compartilhada, CNPJ, memória da empresa e parsers
 
 - Não coloque `OPENAI_API_KEY` no GitHub.
 - Não publique extratos ou planilhas reais no repositório.
-- A v0.3.1 não exige serviço adicional no Railway para Drizzle.
+- A v0.3.2 não exige serviço adicional no Railway para Drizzle.
