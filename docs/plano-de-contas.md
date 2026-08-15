@@ -1,4 +1,4 @@
-# Plano de Contas e DRE — Claria v0.2.0
+# Plano de Contas e DRE — Claria
 
 ## Onde configurar
 

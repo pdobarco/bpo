@@ -1,4 +1,4 @@
-# Fluxo de fechamento da v0.2.0
+# Fluxo de fechamento — Claria
 
 ## 1. Arquivos — Recebi tudo?
 

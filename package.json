@@ -1,14 +1,18 @@
 {
   "name": "claria-bpo",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "install:all": "npm --prefix client install && npm --prefix server install",
-    "build": "npm --prefix client run build",
+    "build": "npm --prefix server run build && npm --prefix client run build",
     "start": "npm --prefix server start",
-    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\""
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix client run typecheck"
   },
   "devDependencies": {
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.2.1"
   }
 }

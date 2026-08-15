@@ -1,6 +1,6 @@
-# Variáveis do Railway — Claria v0.2.1
+# Variáveis do Railway — Claria v0.3.0
 
-Estas são as variáveis **realmente consumidas pelo código da v0.2.1**.
+A modernização para TypeScript/Fastify/Drizzle **não cria novas variáveis obrigatórias**.
 
 ```env
 NODE_ENV=production
@@ -17,11 +17,14 @@ MAX_UPLOAD_MB=25
 
 ## Observações
 
-- `PORT`: não crie manualmente; o Railway fornece.
-- `DATABASE_URL`: use referência para o PostgreSQL existente do projeto.
+- `PORT`: não configurar; o Railway fornece.
+- `DATABASE_URL`: manter a referência para o PostgreSQL atual.
 - `OPENAI_API_KEY`: somente nas Variables do Railway; nunca no GitHub.
-- `AI_MAX_BATCH`: máximo de favorecidos enviados numa chamada de classificação da Luna.
-- `AI_FILE_MAX_CHARS`: máximo de texto enviado à Luna quando um PDF falha no parser convencional.
-- `MAX_UPLOAD_MB`: limite por arquivo recebido pelo backend.
+- `OPENAI_MODEL`: mantenha o modelo configurado para a Luna usado no projeto.
+- `AI_MAX_BATCH`: limite de favorecidos enviados em uma classificação em lote.
+- `AI_FILE_MAX_CHARS`: limite de texto enviado à Luna no fallback de adaptação de PDF.
+- `MAX_UPLOAD_MB`: tamanho máximo por arquivo no endpoint de importação.
+- Node 24 é solicitado pelo campo `engines` dos `package.json` e pelo `.nvmrc`.
+- Drizzle usa a própria `DATABASE_URL`; não existe `DRIZZLE_URL` nem serviço adicional.
 
-`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` **não são necessários nesta versão**, pois a v0.2.1 ainda não usa autenticação JWT nem armazenamento do binário original.
+`JWT_SECRET`, `APP_NAME`, `APP_URL` e `STORE_ORIGINAL_FILES` continuam não sendo exigidos pela v0.3.0.
