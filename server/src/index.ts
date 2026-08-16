@@ -151,6 +151,7 @@ async function runLunaForPending(cid:any,range:any=null){if(!pool)return{updated
 async function applyAccountingPolicy(cid:any){
   await pool.query(`UPDATE transactions SET dre_impact=false,cash_impact=true,accounting_role='TRANSFER' WHERE company_id=$1 AND category='Transferência entre contas próprias'`,[cid])
   await pool.query(`UPDATE transactions SET dre_impact=false,cash_impact=true,accounting_role='CARD_SETTLEMENT',category='Liquidação de cartão de crédito' WHERE company_id=$1 AND (description ILIKE 'Pagamento de fatura%' OR accounting_role='CARD_SETTLEMENT')`,[cid])
+  await pool.query(`UPDATE transactions SET dre_impact=false,cash_impact=true,accounting_role='INVESTMENT_TRANSFER',category='Transferência entre contas próprias' WHERE company_id=$1 AND (description ILIKE 'Renda Fixa - Aplicação em CDB%' OR description ILIKE 'Renda Fixa - Resgate de CDB%')`,[cid])
   await pool.query(`UPDATE transactions SET dre_impact=true,cash_impact=false,accounting_role='CARD_PURCHASE',payment_method='Cartão de crédito' WHERE company_id=$1 AND raw->>'source'='nubank_card'`,[cid])
   await pool.query(`UPDATE transactions SET dre_impact=true,cash_impact=false,accounting_role='SALES_EVENT' WHERE company_id=$1 AND raw->>'source'='pagbank_sales'`,[cid])
   await pool.query(`UPDATE transactions t SET dre_impact=false,cash_impact=true,accounting_role='CASH_RECEIPT' WHERE t.company_id=$1 AND t.raw->>'source'='pagbank_statement' AND t.description ILIKE 'Vendas - Disponivel%' AND EXISTS(SELECT 1 FROM source_files sf WHERE sf.company_id=t.company_id AND sf.kind='PAGBANK_SALES' AND sf.period_start IS NOT NULL AND t.competence_at BETWEEN sf.period_start AND sf.period_end)`,[cid])
@@ -302,6 +303,7 @@ app.post('/api/expected-sources',async(req,res)=>{if(!pool)return res.status(503
 app.delete('/api/expected-sources/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`UPDATE expected_sources SET active=false WHERE id=$1 AND company_id=$2`,[req.params.id,cid]);res.json({ok:true})})
 
 app.get('/api/source-health',async(req,res)=>{if(!pool)return res.json({expected:[],files:[],missing:0,review:0});res.json(await sourceHealth(req.companyId,rangeFromQuery(req.query)))})
+app.get('/api/source-files',async(req,res)=>{if(!pool)return res.json({files:[]});const r=await pool.query(`SELECT id,name,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end,created_at,processed_at FROM source_files WHERE company_id=$1 ORDER BY created_at DESC`,[req.companyId]);res.json({files:r.rows})})
 app.get('/api/period-status',async(req,res)=>{if(!pool)return res.json({quality:0,ready:false,steps:{}});res.json(await periodStatus(req.companyId,rangeFromQuery(req.query)))})
 
 app.get('/api/dre',async(req,res)=>{if(!pool)return res.json({sections:[],result:demo.summary.result,revenue:demo.summary.revenue});res.json(await buildDre(req.companyId,rangeFromQuery(req.query)))})
@@ -354,34 +356,125 @@ app.post('/api/periods/reopen',async(req,res)=>{if(!pool)return res.status(503).
 app.get('/api/audit',async(req,res)=>{if(!pool)return res.json([]);const cid=req.companyId,r=await pool.query(`SELECT action,entity_type,entity_id,details,actor,created_at FROM audit_log WHERE company_id=$1 ORDER BY created_at DESC LIMIT 100`,[cid]);res.json(r.rows)})
 
 app.post('/api/import',upload.array('files',100),async(req,res)=>{
-  if(!req.uploadedFiles?.length)return res.status(400).json({message:'Nenhum arquivo recebido.'});if(!pool)return res.json({message:`${req.uploadedFiles.length} arquivo(s) lido(s). Configure DATABASE_URL para persistir.`})
-  const cid=req.companyId;let company=await getCompany(cid),imported=0,duplicates=0,records=0,supplierLearned=0,globalShared=0,newAccounts=0,reviewFiles=0
-  for(const f of req.uploadedFiles){try{
-    const hash=crypto.createHash('sha256').update(f.buffer).digest('hex'),exists=await pool.query('SELECT id FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash]);if(exists.rowCount){duplicates++;continue}const ext=path.extname(f.originalname).toLowerCase()
-    if(['.xlsx','.xls','.csv'].includes(ext)){const supplierBase=parseSupplierBase(f.buffer);if(supplierBase.matched){const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status) VALUES($1,$2,$3,'SUPPLIER_BASE','IMPORTED','Base de fornecedores aprendida',$4,$5,'NOT_AVAILABLE') RETURNING id`,[cid,f.originalname,hash,supplierBase.records.length,supplierBase.confidence]),learned=await importSupplierRecords(cid,sf.rows[0].id,supplierBase.records);supplierLearned+=learned.learned;globalShared+=learned.shared;newAccounts+=learned.newAccounts;records+=supplierBase.records.length;imported++;await auditSafe(cid,'SUPPLIER_BASE_IMPORTED','source_file',sf.rows[0].id,{name:f.originalname,records:supplierBase.records.length});continue}}
-    let parsed;if(ext==='.pdf')parsed=await parsePdf(f.buffer);else if(['.xlsx','.xls','.csv'].includes(ext))parsed=parseTabular(f.buffer);else continue
-    if(ext==='.pdf'&&!parsed.transactions.length&&process.env.AI_ENABLED==='true'&&parsed.textForAi){
-      try{const adapted=await adaptUnknownPdf({text:parsed.textForAi,company});if(adapted?.transactions?.length){parsed.kind=`AI_ADAPTED_${String(adapted.document_type||'PDF').toUpperCase().replace(/[^A-Z0-9]+/g,'_')}`;parsed.confidence=adapted.confidence||70;parsed.transactions=adapted.transactions.map(x=>{const d=x.date?new Date(`${x.date}T12:00:00-03:00`):new Date();return{occurredAt:d,competenceAt:d,paidAt:d,description:x.description,amount:x.direction==='SAIDA'?-Math.abs(n(x.amount)):Math.abs(n(x.amount)),direction:x.direction,paymentMethod:x.payment_method||null,financialStatus:'PAID',raw:{source:'luna_pdf_adapter'}}});parsed.validation={status:'AI_ADAPTED'};parsed.metadata.periodStart=parsed.transactions.map(t=>toDateOnly(t.competenceAt)).sort()[0]||null;parsed.metadata.periodEnd=parsed.transactions.map(t=>toDateOnly(t.competenceAt)).sort().at(-1)||null}}
-      catch(e){console.error('Luna file adapter',e.message)}
+  if(!req.uploadedFiles?.length)return res.status(400).json({message:'Nenhum arquivo recebido.'})
+  if(!pool)return res.json({message:`${req.uploadedFiles.length} arquivo(s) lido(s). Configure DATABASE_URL para persistir.`})
+
+  const cid=req.companyId
+  let company=await getCompany(cid),processedFiles=0,duplicates=0,records=0,supplierLearned=0,globalShared=0,newAccounts=0,reviewFiles=0,failedFiles=0
+  const results:any[]=[]
+
+  for(const f of req.uploadedFiles){
+    const hash=crypto.createHash('sha256').update(f.buffer).digest('hex')
+    try{
+      const exists=await pool.query('SELECT id,name,status,record_count FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash])
+      if(exists.rowCount){
+        duplicates++
+        results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo já importado para esta empresa.'})
+        continue
+      }
+
+      const ext=path.extname(f.originalname).toLowerCase()
+
+      if(['.xlsx','.xls','.csv'].includes(ext)){
+        const supplierBase=parseSupplierBase(f.buffer)
+        if(supplierBase.matched){
+          const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status) VALUES($1,$2,$3,'SUPPLIER_BASE','IMPORTED','Base de fornecedores aprendida',$4,$5,'NOT_AVAILABLE') RETURNING id`,[cid,f.originalname,hash,supplierBase.records.length,supplierBase.confidence])
+          const learned=await importSupplierRecords(cid,sf.rows[0].id,supplierBase.records)
+          supplierLearned+=learned.learned;globalShared+=learned.shared;newAccounts+=learned.newAccounts;records+=supplierBase.records.length;processedFiles++
+          results.push({name:f.originalname,status:'IMPORTED',kind:'SUPPLIER_BASE',records:supplierBase.records.length})
+          await auditSafe(cid,'SUPPLIER_BASE_IMPORTED','source_file',sf.rows[0].id,{name:f.originalname,records:supplierBase.records.length})
+          continue
+        }
+      }
+
+      let parsed:any
+      if(ext==='.pdf')parsed=await parsePdf(f.buffer)
+      else if(['.xlsx','.xls','.csv'].includes(ext))parsed=parseTabular(f.buffer)
+      else throw new Error(`Formato não suportado: ${ext||'sem extensão'}`)
+
+      if(ext==='.pdf'&&!parsed.transactions.length&&process.env.AI_ENABLED==='true'&&parsed.textForAi){
+        try{
+          const adapted=await adaptUnknownPdf({text:parsed.textForAi,company})
+          if(adapted?.transactions?.length){
+            parsed.kind=`AI_ADAPTED_${String(adapted.document_type||'PDF').toUpperCase().replace(/[^A-Z0-9]+/g,'_')}`
+            parsed.confidence=adapted.confidence||70
+            parsed.transactions=adapted.transactions.map((x:any)=>{const d=x.date?new Date(`${x.date}T12:00:00-03:00`):new Date();return{occurredAt:d,competenceAt:d,paidAt:d,description:x.description,amount:x.direction==='SAIDA'?-Math.abs(n(x.amount)):Math.abs(n(x.amount)),direction:x.direction,paymentMethod:x.payment_method||null,financialStatus:'PAID',raw:{source:'luna_pdf_adapter'}}})
+            parsed.validation={status:'AI_ADAPTED'}
+            parsed.metadata.periodStart=parsed.transactions.map((t:any)=>toDateOnly(t.competenceAt)).filter(Boolean).sort()[0]||null
+            parsed.metadata.periodEnd=parsed.transactions.map((t:any)=>toDateOnly(t.competenceAt)).filter(Boolean).sort().at(-1)||null
+          }
+        }catch(e:any){console.error('Luna file adapter',e.message)}
+      }
+
+      if(parsed.metadata?.document&&!company?.document){
+        await pool.query(`UPDATE companies SET document=$2,name=CASE WHEN name='Empresa Demonstração' AND $3 IS NOT NULL THEN $3 ELSE name END WHERE id=$1`,[cid,parsed.metadata.document,parsed.metadata.name])
+        company=await getCompany(cid)
+      }
+
+      // IMPORTANT: the selected UI month never participates in import acceptance.
+      // Period metadata is stored only so month filters can later display the right data.
+      console.log('import parsed',{companyId:cid,file:f.originalname,kind:parsed.kind,transactions:parsed.transactions.length,validation:parsed.validation?.status||'NOT_AVAILABLE'})
+
+      const txDates=parsed.transactions.map((t:any)=>toDateOnly(t.competenceAt||t.occurredAt)).filter(Boolean).sort()
+      const periodStart=parsed.metadata?.periodStart||txDates[0]||null
+      const periodEnd=parsed.metadata?.periodEnd||txDates.at(-1)||null
+
+      let status='IMPORTED',detail='Arquivo lido e contabilizado'
+      if(!parsed.transactions.length){status='REVIEW';detail='Arquivo reconhecido, mas nenhum lançamento foi extraído';reviewFiles++}
+      else if(parsed.validation?.status==='MISMATCH'){status='REVIEW';detail='Arquivo importado, mas a conferência automática encontrou divergência nos totais';reviewFiles++}
+
+      const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12) RETURNING id`,[cid,f.originalname,hash,parsed.kind,status,detail,parsed.transactions.length,parsed.confidence,parsed.validation?.status||'NOT_AVAILABLE',JSON.stringify(parsed.validation||{}),periodStart,periodEnd])
+      await autoExpectedSource(cid,parsed.kind)
+
+      let insertedForFile=0
+      for(const t of parsed.transactions){
+        const c=await classify(t,cid,company)
+        let role='BANK_MOVEMENT',dreImpact=dreImpactForCategory(c.category),cashImpact=true,financialStatus=t.financialStatus||'PAID'
+        if(parsed.kind==='PAGBANK_SALES'){role='SALES_EVENT';dreImpact=true;cashImpact=false}
+        if(parsed.kind==='NUBANK_CARD'){role='CARD_PURCHASE';dreImpact=true;cashImpact=false;financialStatus='OPEN'}
+        if(c.category==='Transferência entre contas próprias'){role='TRANSFER';dreImpact=false}
+        if(c.category==='Liquidação de cartão de crédito'){role='CARD_SETTLEMENT';dreImpact=false}
+        if(/^Renda Fixa - (Aplicação|Resgate) em CDB/i.test(t.description||'')){role='INVESTMENT_TRANSFER';dreImpact=false;c.category='Transferência entre contas próprias'}
+
+        const ins=await pool.query(`INSERT INTO transactions(company_id,source_file_id,occurred_at,competence_at,due_at,paid_at,description,normalized_party,counterparty_document,direction,amount,gross_amount,fee_amount,net_amount,category,account_id,classification_confidence,classification_status,classification_source,payment_method,financial_status,dre_impact,cash_impact,accounting_role,external_id,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb) RETURNING id`,[cid,sf.rows[0].id,t.occurredAt,t.competenceAt||t.occurredAt,t.dueAt||null,t.paidAt||null,t.description,c.normalized_party,c.counterparty_document,t.direction,t.amount,t.grossAmount??null,t.feeAmount??null,t.netAmount??null,c.category,c.account_id,c.confidence,c.status,c.source,t.paymentMethod||paymentMethod(t.description),financialStatus,dreImpact,cashImpact,role,t.externalId||null,JSON.stringify(t.raw||{})])
+
+        if(parsed.kind==='PAGBANK_SALES'&&n(t.feeAmount)>0){
+          const feeAccount=await ensureAccountForCategory(cid,'Taxas bancárias e financeiras','SAIDA')
+          await pool.query(`INSERT INTO transactions(company_id,source_file_id,occurred_at,competence_at,description,normalized_party,direction,amount,category,account_id,classification_confidence,classification_status,classification_source,payment_method,financial_status,dre_impact,cash_impact,accounting_role,economic_key,raw) VALUES($1,$2,$3,$4,$5,'PAGBANK','SAIDA',$6,'Taxas bancárias e financeiras',$7,100,'AUTO','PARSER',$8,'PAID',true,false,'FEE',$9,$10::jsonb)`,[cid,sf.rows[0].id,t.occurredAt,t.competenceAt||t.occurredAt,`Taxa PagBank — ${t.description}`,-Math.abs(n(t.feeAmount)),feeAccount?.id||null,t.paymentMethod||paymentMethod(t.description),ins.rows[0].id,JSON.stringify({source:'pagbank_sales_fee',parentTransactionId:ins.rows[0].id})])
+        }
+        insertedForFile++;records++
+      }
+
+      processedFiles++
+      results.push({name:f.originalname,status,kind:parsed.kind,records:insertedForFile,validation:parsed.validation?.status||'NOT_AVAILABLE',detail})
+      await auditSafe(cid,'FILE_IMPORTED','source_file',sf.rows[0].id,{name:f.originalname,kind:parsed.kind,records:insertedForFile,status,validation:parsed.validation?.status||'NOT_AVAILABLE'})
+    }catch(e:any){
+      console.error('import error',f.originalname,e)
+      failedFiles++;reviewFiles++
+      const detail=`Falha no processamento: ${String(e?.message||e||'erro desconhecido').slice(0,500)}`
+      try{
+        await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation) VALUES($1,$2,$3,'UNKNOWN','REVIEW',$4,0,0,'ERROR',$5::jsonb) ON CONFLICT(company_id,hash) DO UPDATE SET status='REVIEW',status_detail=excluded.status_detail,validation_status='ERROR',validation=excluded.validation,processed_at=now()`,[cid,f.originalname,hash,detail,JSON.stringify({error:String(e?.message||e||'erro desconhecido')})])
+      }catch(persistError:any){console.error('failed to persist review file',f.originalname,persistError)}
+      results.push({name:f.originalname,status:'ERROR',records:0,detail})
     }
-    if(parsed.metadata?.document&&!company?.document){await pool.query(`UPDATE companies SET document=$2,name=CASE WHEN name='Empresa Demonstração' AND $3 IS NOT NULL THEN $3 ELSE name END WHERE id=$1`,[cid,parsed.metadata.document,parsed.metadata.name]);company=await getCompany(cid)}
-    const txDates=parsed.transactions.map(t=>toDateOnly(t.competenceAt||t.occurredAt)).filter(Boolean).sort(),periodStart=parsed.metadata?.periodStart||txDates[0]||null,periodEnd=parsed.metadata?.periodEnd||txDates.at(-1)||null,periodKey=periodStart&&periodEnd&&periodStart.slice(0,7)===periodEnd.slice(0,7)?periodStart.slice(0,7):null
-    if(periodKey&&await isClosed(cid,periodKey)){reviewFiles++;continue}
-    let status='IMPORTED',detail='Arquivo lido e contabilizado';if(!parsed.transactions.length){status='REVIEW';detail='Arquivo reconhecido, mas nenhum lançamento foi extraído'}else if(parsed.validation?.status==='MISMATCH'){status='REVIEW';detail='Valores extraídos não fecham com os totais informados no arquivo';reviewFiles++}
-    const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12) RETURNING id`,[cid,f.originalname,hash,parsed.kind,status,detail,parsed.transactions.length,parsed.confidence,parsed.validation?.status||'NOT_AVAILABLE',JSON.stringify(parsed.validation||{}),periodStart,periodEnd]);await autoExpectedSource(cid,parsed.kind)
-    for(const t of parsed.transactions){const c=await classify(t,cid,company);let role='BANK_MOVEMENT',dreImpact=dreImpactForCategory(c.category),cashImpact=true,financialStatus=t.financialStatus||'PAID';if(parsed.kind==='PAGBANK_SALES'){role='SALES_EVENT';dreImpact=true;cashImpact=false}if(parsed.kind==='NUBANK_CARD'){role='CARD_PURCHASE';dreImpact=true;cashImpact=false;financialStatus='OPEN'}if(c.category==='Transferência entre contas próprias'){role='TRANSFER';dreImpact=false}if(c.category==='Liquidação de cartão de crédito'){role='CARD_SETTLEMENT';dreImpact=false}
-      const ins=await pool.query(`INSERT INTO transactions(company_id,source_file_id,occurred_at,competence_at,due_at,paid_at,description,normalized_party,counterparty_document,direction,amount,gross_amount,fee_amount,net_amount,category,account_id,classification_confidence,classification_status,classification_source,payment_method,financial_status,dre_impact,cash_impact,accounting_role,external_id,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb) RETURNING id`,[cid,sf.rows[0].id,t.occurredAt,t.competenceAt||t.occurredAt,t.dueAt||null,t.paidAt||null,t.description,c.normalized_party,c.counterparty_document,t.direction,t.amount,t.grossAmount??null,t.feeAmount??null,t.netAmount??null,c.category,c.account_id,c.confidence,c.status,c.source,t.paymentMethod||paymentMethod(t.description),financialStatus,dreImpact,cashImpact,role,t.externalId||null,JSON.stringify(t.raw||{})])
-      if(parsed.kind==='PAGBANK_SALES'&&n(t.feeAmount)>0){const feeAccount=await ensureAccountForCategory(cid,'Taxas bancárias e financeiras','SAIDA');await pool.query(`INSERT INTO transactions(company_id,source_file_id,occurred_at,competence_at,description,normalized_party,direction,amount,category,account_id,classification_confidence,classification_status,classification_source,payment_method,financial_status,dre_impact,cash_impact,accounting_role,economic_key,raw) VALUES($1,$2,$3,$4,$5,'PAGBANK','SAIDA',$6,'Taxas bancárias e financeiras',$7,100,'AUTO','PARSER',$8,'PAID',true,false,'FEE',$9,$10::jsonb)`,[cid,sf.rows[0].id,t.occurredAt,t.competenceAt||t.occurredAt,`Taxa PagBank — ${t.description}`,-Math.abs(n(t.feeAmount)),feeAccount?.id||null,t.paymentMethod||paymentMethod(t.description),ins.rows[0].id,JSON.stringify({source:'pagbank_sales_fee',parentTransactionId:ins.rows[0].id})])}
-      records++
-    }
-    imported++;await auditSafe(cid,'FILE_IMPORTED','source_file',sf.rows[0].id,{name:f.originalname,kind:parsed.kind,records:parsed.transactions.length,status})
-  }catch(e){console.error('import error',f.originalname,e);reviewFiles++}}
-  await applyAccountingPolicy(cid);let aiUpdated=0;try{if(process.env.AI_ENABLED==='true'){const r=await runLunaForPending(cid);aiUpdated=r.updated||0}}catch(e){console.error('automatic Luna',e)}const review=(await getReviewGroups(cid)).length,extras=[];if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram o Clara`);if(globalShared)extras.push(`${globalShared} classificação(ões) alimentaram a biblioteca compartilhada`);if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`);res.json({message:`Importação concluída: ${imported} arquivo(s), ${records} lançamento(s). ${duplicates?duplicates+' duplicado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`})
+  }
+
+  await applyAccountingPolicy(cid)
+  let aiUpdated=0
+  try{if(process.env.AI_ENABLED==='true'){const r=await runLunaForPending(cid);aiUpdated=r.updated||0}}catch(e){console.error('automatic Luna',e)}
+  const review=(await getReviewGroups(cid)).length,extras=[]
+  if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram o Clara`)
+  if(globalShared)extras.push(`${globalShared} classificação(ões) alimentaram a biblioteca compartilhada`)
+  if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`)
+
+  const received=req.uploadedFiles.length
+  const summary=`Importação concluída: ${received} arquivo(s) recebido(s), ${processedFiles} processado(s), ${records} lançamento(s). ${duplicates?duplicates+' duplicado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`
+  res.json({message:summary,received,processedFiles,records,duplicates,reviewFiles,failedFiles,results})
 })
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.4.1',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.4.1',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.4.1',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.4.3',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.4.3',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.4.3',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -392,6 +485,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Clara BPO v0.4.1 on :${PORT}`)
+  console.log(`Clara BPO v0.4.3 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})
