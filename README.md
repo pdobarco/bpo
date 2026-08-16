@@ -1,56 +1,16 @@
-# Clara BPO Financeiro — v0.4.1
+# Clara BPO Financeiro — patch v0.4.2 import-fix
 
-Versão de refinamento visual que aproxima a aplicação do **mockup aprovado**, mantendo as funcionalidades da v0.4.0: autenticação, cadastro, multiempresa, administração MASTER e demonstração pública.
+Pacote de correção para o problema em que PDFs com movimentações eram enviados para revisão/ficavam invisíveis e o upload estava acoplado ao período selecionado na interface.
 
-## O que mudou na v0.4.1
+## Arquivos principais
 
-- reconstrução da tela inicial/login para seguir a composição do mockup aprovado;
-- fundo externo claro e grande container branco arredondado;
-- lado esquerdo institucional com headline, benefícios, grafismos leves e personagem inspirada no mockup;
-- lado direito com card de login/cadastro mais compacto e elegante;
-- uso da **logo oficial exatamente como enviada**; o arquivo original foi preservado byte a byte em `client/public/clara-logo-original.png`;
-- novo dashboard interno mais próximo do mockup: menu lateral azul, KPIs executivos, DRE, gráfico Receita x Despesas e bloco de conciliação;
-- `/demonstracao` atualizado para usar a mesma linguagem visual com dados totalmente fictícios;
-- preservadas todas as regras e dados da v0.4.0;
-- nenhum novo ajuste estrutural no PostgreSQL: o schema continua `0.4.0`.
+- `server/src/import/pdf-layout.ts` — extrai PDF preservando ordem visual das colunas;
+- `server/src/import/parsers.ts` — detecta e normaliza quatro layouts financeiros conhecidos;
+- `server/src/import/process-upload.ts` — contrato de processamento sem mês/competência de UI;
+- `client/src/features/files/import-policy.ts` — upload/listagem de arquivos independente do período e invalidação de queries;
+- `INTEGRACAO-v0.4.2.md` — pontos exatos a aplicar na base atual;
+- `teste-aceite-v0.4.2.md` — checklist de validação.
 
-O mockup aprovado também foi incluído como referência em `docs/mockup-aprovado-v0.4.1.png`.
+## Importante
 
-## Funcionalidades preservadas
-
-- login e cadastro;
-- usuário MASTER `thomas.muller@bateriasmoura.com`;
-- perfis `MASTER`, `ADMIN`, `OPERATOR` e `VIEWER`;
-- cadastro e administração de empresas;
-- vínculo de usuários a uma ou mais empresas;
-- rota pública `/demonstracao`;
-- arquivos, lançamentos, edição de competência/Plano de Contas, conciliação, DRE, fechamento e auditoria;
-- Drizzle + PostgreSQL + Railway.
-
-## Deploy no Railway
-
-1. Substitua os arquivos do repositório pelos desta versão.
-2. **Não apague nem recrie o PostgreSQL.**
-3. Mantenha exatamente a mesma `DATABASE_URL` usada na versão atual.
-4. Mantenha as variáveis abaixo:
-
-```env
-MASTER_EMAIL=thomas.muller@bateriasmoura.com
-MASTER_INITIAL_PASSWORD=UMA_SENHA_FORTE_COM_PELO_MENOS_8_CARACTERES
-SESSION_DAYS=30
-```
-
-5. Faça o deploy e confira `/api/health`.
-
-Resposta esperada:
-
-```json
-{
-  "ok": true,
-  "version": "0.4.1",
-  "database": "ok",
-  "schema": "0.4.0"
-}
-```
-
-O schema continuar em `0.4.0` é intencional: a v0.4.1 é uma evolução visual/UX e não cria novas tabelas.
+Este ZIP é um **patch de código**, não uma cópia integral do repositório atual. Ele foi produzido porque o source tree v0.4.1 completo não estava disponível no runtime desta conversa. Os módulos foram desenhados para a arquitetura documentada do Clara (React 19 + TanStack Query + Fastify 5 + TypeScript + PostgreSQL/Drizzle) e devem ser integrados à base atual seguindo o guia.
