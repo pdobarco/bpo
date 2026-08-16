@@ -86,3 +86,14 @@
 .sidebar-bottom{border-top:1px solid rgba(255,255,255,.10);padding-top:10px}
 .demo-shell .sidebar-top{background:#fff}
 @media(max-width:900px){.sidebar-top{height:78px;min-height:78px}.sidebar-top .official-logo,.sidebar .sidebar-top .official-logo{height:58px}.sidebar-top .official-logo img,.sidebar .sidebar-top .official-logo img{max-height:58px}}
+
+
+/* v0.4.4 — header branco integral da sidebar + versão visível */
+.sidebar{padding:0!important;overflow:hidden}
+.sidebar-top{width:100%;height:86px;min-height:86px;margin:0!important;padding:10px 12px;background:#fff!important;border-radius:0!important;border-bottom:1px solid #e1e7f0;box-shadow:0 1px 0 rgba(10,42,98,.04);box-sizing:border-box}
+.sidebar-top .official-logo,.sidebar .sidebar-top .official-logo{width:100%;height:66px;padding:0;background:transparent!important;border-radius:0!important;box-shadow:none!important;display:flex;align-items:center;justify-content:center}
+.sidebar-top .official-logo img,.sidebar .sidebar-top .official-logo img{max-width:100%;max-height:62px;width:auto;height:auto;object-fit:contain}
+.sidebar nav{padding:14px 12px 0;margin-top:0!important}
+.sidebar-bottom{margin:0 12px 0;padding-top:10px;margin-top:auto}
+.sidebar-version{display:block!important;color:#c7d8f4!important;font-size:10px!important;font-weight:700;letter-spacing:.03em;padding:0 6px 8px;opacity:.95}
+@media(max-width:900px){.sidebar-top{height:78px;min-height:78px}.sidebar nav{padding-top:10px}}

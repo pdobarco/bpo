@@ -21,7 +21,7 @@ export async function classify(transaction,companyId,company=null){
 
   if(pool){
     const exact=await pool.query(`SELECT category,normalized_party,entity_document,confidence,scope,source,account_id FROM classification_rules
-      WHERE company_id=$1 AND scope='COMPANY' AND (normalized_party=$2 OR ($4 IS NOT NULL AND entity_document=$4))
+      WHERE company_id=$1 AND scope='COMPANY' AND (normalized_party=$2 OR ($4::text IS NOT NULL AND entity_document=$4::text))
       AND (direction=$3 OR direction='ANY') ORDER BY CASE WHEN direction=$3 THEN 0 ELSE 1 END,confidence DESC LIMIT 1`,[companyId,party,direction,document])
     if(exact.rowCount)return resultWithAccount(companyId,{...exact.rows[0],status:'CONFIRMED'},party,document)
 
@@ -32,8 +32,8 @@ export async function classify(transaction,companyId,company=null){
     }
 
     const global=await pool.query(`SELECT category,normalized_party,entity_document,confidence,confirmation_count,scope,source FROM classification_rules
-      WHERE scope='GLOBAL' AND (direction=$2 OR direction='ANY') AND (($3 IS NOT NULL AND entity_document=$3) OR $1 LIKE '%'||pattern||'%')
-      ORDER BY CASE WHEN $3 IS NOT NULL AND entity_document=$3 THEN 0 ELSE 1 END,confidence DESC,confirmation_count DESC,length(pattern) DESC LIMIT 1`,[txt,direction,document])
+      WHERE scope='GLOBAL' AND (direction=$2 OR direction='ANY') AND (($3::text IS NOT NULL AND entity_document=$3::text) OR $1 LIKE '%'||pattern||'%')
+      ORDER BY CASE WHEN $3::text IS NOT NULL AND entity_document=$3::text THEN 0 ELSE 1 END,confidence DESC,confirmation_count DESC,length(pattern) DESC LIMIT 1`,[txt,direction,document])
     if(global.rowCount){const g=global.rows[0],status=Number(g.confidence)>=95||Number(g.confirmation_count)>=3?'AUTO':'SUGGESTED';return resultWithAccount(companyId,{...g,status},party,document)}
   }
 
