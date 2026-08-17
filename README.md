@@ -1,4 +1,4 @@
-# Clara BPO Financeiro — v0.4.4
+# Clara BPO Financeiro — v0.4.5
 
 Versão completa baseada no código real do repositório enviado, com correções integradas no fluxo que o Railway executa.
 
@@ -15,12 +15,12 @@ Versão completa baseada no código real do repositório enviado, com correçõe
 - Central de Arquivos lista **todos os arquivos da empresa**, sem filtro pelo mês da interface;
 - resposta do upload traz diagnóstico por arquivo quando houver erro;
 - cabeçalho branco integral no topo da sidebar para a logo oficial da Clara;
-- versão visível no rodapé do menu lateral: `v0.4.4`;
+- versão visível no rodapé do menu lateral: `v0.4.5`;
 - aplicações/resgates de CDB tratados como movimentação financeira fora da DRE.
 
 ## Versão
 
-- App: `0.4.4`
+- App: `0.4.5`
 - Endpoint de conferência: `GET /api/health`
 
 ## Deploy no Railway
@@ -28,5 +28,9 @@ Versão completa baseada no código real do repositório enviado, com correçõe
 1. Substitua o conteúdo do repositório pelos arquivos desta versão.
 2. Faça commit/push.
 3. O Railway executará `npm run install:all && npm run build`.
-4. Confirme em `/api/health` que a versão retornada é `0.4.4`.
-5. Execute o checklist em `docs/teste-aceite-v0.4.4.md`.
+4. Confirme em `/api/health` que a versão retornada é `0.4.5`.
+5. Execute o checklist em `docs/teste-aceite-v0.4.5.md`.
+
+
+## v0.4.5 — reprocessamento de falhas
+Arquivos que falharam em uma versão anterior e ficaram registrados com zero lançamentos não bloqueiam mais uma nova tentativa pelo hash. Veja `docs/CHANGELOG-v0.4.5.md`.

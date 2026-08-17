@@ -360,17 +360,32 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   if(!pool)return res.json({message:`${req.uploadedFiles.length} arquivo(s) lido(s). Configure DATABASE_URL para persistir.`})
 
   const cid=req.companyId
-  let company=await getCompany(cid),processedFiles=0,duplicates=0,records=0,supplierLearned=0,globalShared=0,newAccounts=0,reviewFiles=0,failedFiles=0
+  let company=await getCompany(cid),processedFiles=0,duplicates=0,retriedFiles=0,records=0,supplierLearned=0,globalShared=0,newAccounts=0,reviewFiles=0,failedFiles=0
   const results:any[]=[]
 
   for(const f of req.uploadedFiles){
     const hash=crypto.createHash('sha256').update(f.buffer).digest('hex')
+    let currentSourceFileId:string|null=null
     try{
-      const exists=await pool.query('SELECT id,name,status,record_count FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash])
+      const exists=await pool.query('SELECT id,name,status,record_count,validation_status,kind,status_detail FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash])
       if(exists.rowCount){
-        duplicates++
-        results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo já importado para esta empresa.'})
-        continue
+        const previous=exists.rows[0]
+        const previousCount=n(previous.record_count)
+        // A failed/review stub with zero records must never block a new attempt.
+        // This is especially important after a parser/SQL bug has been fixed in a newer version.
+        const retryable=previousCount===0&&(previous.status!=='IMPORTED'||previous.validation_status==='ERROR'||previous.kind==='UNKNOWN')
+        if(retryable){
+          // Remove any partial rows that could have been written before the previous failure,
+          // then remove the failed source-file stub so the same hash can be processed again.
+          await pool.query('DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2',[cid,previous.id])
+          await pool.query('DELETE FROM source_files WHERE company_id=$1 AND id=$2',[cid,previous.id])
+          retriedFiles++
+          console.log('reprocessing failed import',{companyId:cid,file:f.originalname,previousId:previous.id,previousStatus:previous.status,previousValidation:previous.validation_status})
+        }else{
+          duplicates++
+          results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo já processado para esta empresa.'})
+          continue
+        }
       }
 
       const ext=path.extname(f.originalname).toLowerCase()
@@ -424,6 +439,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
       else if(parsed.validation?.status==='MISMATCH'){status='REVIEW';detail='Arquivo importado, mas a conferência automática encontrou divergência nos totais';reviewFiles++}
 
       const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12) RETURNING id`,[cid,f.originalname,hash,parsed.kind,status,detail,parsed.transactions.length,parsed.confidence,parsed.validation?.status||'NOT_AVAILABLE',JSON.stringify(parsed.validation||{}),periodStart,periodEnd])
+      currentSourceFileId=sf.rows[0].id
       await autoExpectedSource(cid,parsed.kind)
 
       let insertedForFile=0
@@ -453,7 +469,9 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
       failedFiles++;reviewFiles++
       const detail=`Falha no processamento: ${String(e?.message||e||'erro desconhecido').slice(0,500)}`
       try{
-        await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation) VALUES($1,$2,$3,'UNKNOWN','REVIEW',$4,0,0,'ERROR',$5::jsonb) ON CONFLICT(company_id,hash) DO UPDATE SET status='REVIEW',status_detail=excluded.status_detail,validation_status='ERROR',validation=excluded.validation,processed_at=now()`,[cid,f.originalname,hash,detail,JSON.stringify({error:String(e?.message||e||'erro desconhecido')})])
+        // Never leave partial financial rows behind when a file fails midway.
+        if(currentSourceFileId)await pool.query('DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2',[cid,currentSourceFileId])
+        await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation) VALUES($1,$2,$3,'UNKNOWN','REVIEW',$4,0,0,'ERROR',$5::jsonb) ON CONFLICT(company_id,hash) DO UPDATE SET status='REVIEW',status_detail=excluded.status_detail,record_count=0,validation_status='ERROR',validation=excluded.validation,processed_at=now()`,[cid,f.originalname,hash,detail,JSON.stringify({error:String(e?.message||e||'erro desconhecido')})])
       }catch(persistError:any){console.error('failed to persist review file',f.originalname,persistError)}
       results.push({name:f.originalname,status:'ERROR',records:0,detail})
     }
@@ -468,13 +486,13 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`)
 
   const received=req.uploadedFiles.length
-  const summary=`Importação concluída: ${received} arquivo(s) recebido(s), ${processedFiles} processado(s), ${records} lançamento(s). ${duplicates?duplicates+' duplicado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`
-  res.json({message:summary,received,processedFiles,records,duplicates,reviewFiles,failedFiles,results})
+  const summary=`Importação concluída: ${received} arquivo(s) recebido(s), ${processedFiles} processado(s), ${records} lançamento(s). ${retriedFiles?retriedFiles+' falha(s) anterior(es) reprocessada(s). ':''}${duplicates?duplicates+' duplicado(s) já processado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`
+  res.json({message:summary,received,processedFiles,records,duplicates,retriedFiles,reviewFiles,failedFiles,results})
 })
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.4.4',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.4.4',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.4.4',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.4.5',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.4.5',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.4.5',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -485,6 +503,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Clara BPO v0.4.3 on :${PORT}`)
+  console.log(`Clara BPO v0.4.5 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})
