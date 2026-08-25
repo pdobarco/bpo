@@ -1,36 +1,59 @@
-# Clara BPO Financeiro — v0.4.5
+# Clara BPO Financeiro — v0.5.0
 
-Versão completa baseada no código real do repositório enviado, com correções integradas no fluxo que o Railway executa.
+Versão consolidada com sincronização por pasta, DRE comparativa expansível e novo módulo de Precificação.
 
-## Principais correções
+## Principais mudanças
 
-- upload de arquivos **independente do mês selecionado**;
-- parser de PDF migrado para extração por coordenadas com PDF.js, preservando linhas de tabelas bancárias;
-- suporte validado para:
-  - Nubank — extrato de conta;
-  - Nubank — fatura de cartão;
-  - PagBank/PagSeguro — extrato de conta;
-  - PagBank — relatório de vendas;
-- arquivos com erro/revisão agora são persistidos e aparecem na Central de Arquivos;
-- Central de Arquivos lista **todos os arquivos da empresa**, sem filtro pelo mês da interface;
-- resposta do upload traz diagnóstico por arquivo quando houver erro;
-- cabeçalho branco integral no topo da sidebar para a logo oficial da Clara;
-- versão visível no rodapé do menu lateral: `v0.4.5`;
-- aplicações/resgates de CDB tratados como movimentação financeira fora da DRE.
+### Arquivos
+- **Escolher pasta = sincronizar base**: a pasta selecionada passa a representar a fotografia atual dos documentos.
+- Em uma sincronização concluída, arquivos e lançamentos da base anterior são substituídos pelo conteúdo atual da pasta.
+- Se a nova pasta falhar em um arquivo crítico, a base anterior é preservada.
+- **Enviar arquivos = adicionar**: upload avulso continua acumulativo.
+- Regras/classificações aprendidas permanecem salvas mesmo quando arquivos antigos são substituídos.
+- O filtro de competência continua servindo apenas para visualização; nunca limita o upload.
+
+### DRE / Resultados
+- Comparação anual passa a usar o mesmo Plano de Contas em todos os meses.
+- Contas com valor zero continuam visíveis quando o grupo é expandido.
+- Grupos possuem `+ / −`, com ações **Expandir tudo** e **Recolher tudo**.
+
+### Cadastros
+- Aviso no topo orienta o cadastro de todas as contas bancárias para reconhecer transferências próprias e evitar falsa receita/despesa.
+
+### Precificação
+Novo item no menu, acima de Cadastros:
+- modo **Preço → margem**;
+- modo **Custo → markup**;
+- custos/despesas editáveis, com inclusão e remoção de linhas;
+- bases em `% da venda`, `% do custo` ou `R$ por unidade`;
+- margem de contribuição em R$ e %;
+- meta de margem, preço mínimo, preço recomendado, markup e cenários;
+- modelos de precificação salvos por empresa;
+- entrada manual de um produto;
+- importação de tabela Excel;
+- botão **Baixar modelo Excel** com cabeçalhos padrão;
+- aplicação da mesma lógica em lote;
+- exportação XLSX com produtos e memória de cálculo;
+- botão **Comparar com mercado — Luna**, usando pesquisa web quando a Luna estiver configurada.
+
+## Cabeçalhos do modelo de precificação
+- `codigo` (opcional)
+- `produto` (obrigatório)
+- `custo` (obrigatório para cálculo)
+- `preco_venda` (opcional no modo custo → markup)
+- `categoria` (opcional)
+- `marca` (opcional)
+- `observacao` (opcional)
 
 ## Versão
+- App: `0.5.0`
+- A versão é exibida no rodapé do menu lateral.
+- `/api/health` deve retornar `version: 0.5.0`.
 
-- App: `0.4.5`
-- Endpoint de conferência: `GET /api/health`
-
-## Deploy no Railway
-
-1. Substitua o conteúdo do repositório pelos arquivos desta versão.
-2. Faça commit/push.
-3. O Railway executará `npm run install:all && npm run build`.
-4. Confirme em `/api/health` que a versão retornada é `0.4.5`.
-5. Execute o checklist em `docs/teste-aceite-v0.4.5.md`.
-
-
-## v0.4.5 — reprocessamento de falhas
-Arquivos que falharam em uma versão anterior e ficaram registrados com zero lançamentos não bloqueiam mais uma nova tentativa pelo hash. Veja `docs/CHANGELOG-v0.4.5.md`.
+## Deploy
+1. Substitua o conteúdo do repositório pelos arquivos deste pacote.
+2. Commit/push no GitHub ligado ao Railway.
+3. Aguarde build e deploy.
+4. Acesse `/api/health` e confirme `0.5.0`.
+5. Faça recarga forçada do navegador/PWA.
+6. Execute `docs/teste-aceite-v0.5.0.md`.

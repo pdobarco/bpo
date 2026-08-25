@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'Clara BPO Financeiro',
         short_name: 'Clara',
-        description: 'BPO financeiro, conciliação, DRE e gestão multiempresa.',
+        description: 'BPO financeiro, conciliação, DRE, precificação e gestão multiempresa.',
         theme_color: '#082a66',
         background_color: '#f7f9fc',
         display: 'standalone',

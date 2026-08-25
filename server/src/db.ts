@@ -139,6 +139,12 @@ export async function initDb() {
     kind TEXT NOT NULL, label TEXT NOT NULL, frequency TEXT DEFAULT 'MONTHLY', active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,kind))`)
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS pricing_models(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    name TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'SALE', lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+    target_margin NUMERIC DEFAULT 20, markup NUMERIC DEFAULT 2, active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,name))`)
+
   await pool.query(`CREATE TABLE IF NOT EXISTS period_closures(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
     period_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'CLOSED', closed_at TIMESTAMPTZ DEFAULT now(),
@@ -186,7 +192,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.4.0',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.5.0',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
   // O banco do Claria nasceu antes do Drizzle. O bootstrap acima é intencionalmente idempotente para adotar bancos existentes;

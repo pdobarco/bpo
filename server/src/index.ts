@@ -14,8 +14,9 @@ import { parsePdf } from './parsers/pdf.js'
 import { parseTabular } from './parsers/tabular.js'
 import { parseSupplierBase } from './parsers/suppliers.js'
 import { classify } from './services/classify.js'
-import { suggestNegativeParties, adaptUnknownPdf } from './services/ai.js'
+import { suggestNegativeParties, adaptUnknownPdf, compareMarketProducts } from './services/ai.js'
 import { isLikelyBusinessName,normalize } from './services/entity.js'
+import * as XLSX from 'xlsx'
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url))
 const PORT=Number(process.env.PORT||3000),mb=Number(process.env.MAX_UPLOAD_MB||25)
@@ -39,13 +40,19 @@ const bodySchemas: Record<string, any> = {
   'POST /api/admin/companies': z.object({name:z.string().min(2),document:z.string().optional(),sector:z.string().optional(),activity:z.string().optional()}),
   'PATCH /api/admin/companies/:id': z.object({name:z.string().optional(),document:z.string().nullable().optional(),sector:z.string().nullable().optional(),activity:z.string().nullable().optional(),active:z.boolean().optional()}).passthrough(),
   'POST /api/admin/users': z.object({name:z.string().min(2),email:z.string().email(),password:z.string().min(8),role:z.enum(['MASTER','ADMIN','OPERATOR','VIEWER']).default('OPERATOR'),companyIds:z.array(z.string().uuid()).default([])}),
-  'PATCH /api/admin/users/:id': z.object({name:z.string().optional(),role:z.enum(['MASTER','ADMIN','OPERATOR','VIEWER']).optional(),status:z.enum(['ACTIVE','INACTIVE']).optional(),password:z.string().min(8).optional(),companyIds:z.array(z.string().uuid()).optional()}).passthrough()
+  'PATCH /api/admin/users/:id': z.object({name:z.string().optional(),role:z.enum(['MASTER','ADMIN','OPERATOR','VIEWER']).optional(),status:z.enum(['ACTIVE','INACTIVE']).optional(),password:z.string().min(8).optional(),companyIds:z.array(z.string().uuid()).optional()}).passthrough(),
+  'POST /api/pricing/models': z.object({name:z.string().min(1),mode:z.enum(['SALE','COST']).default('SALE'),lines:z.array(z.any()).default([]),targetMargin:z.number().optional(),markup:z.number().optional()}).passthrough(),
+  'PUT /api/pricing/models/:id': z.object({name:z.string().min(1),mode:z.enum(['SALE','COST']).default('SALE'),lines:z.array(z.any()).default([]),targetMargin:z.number().optional(),markup:z.number().optional()}).passthrough(),
+  'POST /api/pricing/market-compare': z.object({product:z.string().min(2),brand:z.string().optional(),category:z.string().optional(),referencePrice:z.number().optional()}).passthrough(),
+  'POST /api/pricing/export': z.object({rows:z.array(z.any()).max(5000),lines:z.array(z.any()).optional(),modelName:z.string().optional()}).passthrough()
 }
 
 
 function responseFacade(reply:any){
   const facade={
     status(code:any){reply.code(code);return facade},
+    header(name:any,value:any){reply.header(name,value);return facade},
+    send(payload:any){return reply.send(payload)},
     json(payload:any){return reply.send(payload)}
   }
   return facade
@@ -168,8 +175,14 @@ async function buildDre(cid:any,range:any){
 async function buildDreComparative(cid:any,year:any){
   const y=Number(year)||new Date().getFullYear(),monthDres=[]
   for(let m=1;m<=12;m++){const last=new Date(y,m,0).getDate(),period=`${y}-${pad(m)}`;monthDres.push(await buildDre(cid,{from:`${period}-01`,to:`${period}-${pad(last)}`,period}))}
-  const keys=DRE_SECTIONS.filter(x=>x[0]!=='FORA_DRE'),sections=keys.map(([key,label])=>({key,label,months:Array(12).fill(0),accounts:[]}))
-  for(let i=0;i<12;i++){for(const sec of monthDres[i].sections||[]){const target=sections.find(x=>x.key===sec.key);if(target)target.months[i]=n(sec.total)}}
+  const baseAccounts=await getChartAccounts(cid,{includeGroups:false}),keys=DRE_SECTIONS.filter(x=>x[0]!=='FORA_DRE')
+  const sections=keys.map(([key,label,order])=>({key,label,order,months:Array(12).fill(0),accounts:baseAccounts.filter((a:any)=>a.active&&a.dre_section===key).sort((a:any,b:any)=>n(a.dre_order)-n(b.dre_order)||String(a.code||'').localeCompare(String(b.code||''))).map((a:any)=>({id:a.id,code:a.code,name:a.name,months:Array(12).fill(0)}))}))
+  for(let i=0;i<12;i++){
+    for(const sec of monthDres[i].sections||[]){
+      const target=sections.find((x:any)=>x.key===sec.key);if(!target)continue;target.months[i]=n(sec.total)
+      for(const a of sec.accounts||[]){const ta=target.accounts.find((x:any)=>x.id===a.id);if(ta)ta.months[i]=n(a.amount)}
+    }
+  }
   const result=monthDres.map(d=>n(d.result));return{year:y,sections,result}
 }
 
@@ -298,6 +311,28 @@ app.get('/api/company-accounts',async(req,res)=>{if(!pool)return res.json([]);re
 app.post('/api/company-accounts',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{label,institution,document,bankCode,agency,account,aliases=[]}=req.body;if(!label)return res.status(400).json({message:'Informe um nome para a conta.'});const r=await pool.query(`INSERT INTO company_accounts(company_id,label,institution,document,bank_code,agency,account,aliases) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id,label,institution,document,bank_code,agency,account,aliases,active`,[cid,label,institution||null,document||null,bankCode||null,agency||null,account||null,JSON.stringify(Array.isArray(aliases)?aliases:[])]);await auditSafe(cid,'COMPANY_ACCOUNT_CREATED','company_account',r.rows[0].id,r.rows[0]);res.json(r.rows[0])})
 app.delete('/api/company-accounts/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`UPDATE company_accounts SET active=false WHERE id=$1 AND company_id=$2`,[req.params.id,cid]);res.json({ok:true})})
 
+
+function pricingHeader(v:any){return normalize(String(v||'')).replace(/[^A-Z0-9]+/g,'_').replace(/^_|_$/g,'')}
+function pricingNumber(v:any){if(typeof v==='number')return v;const s=String(v??'').trim().replace(/R\$\s?/gi,'').replace(/\s/g,'');if(!s)return 0;const normalized=s.includes(',')?s.replace(/\./g,'').replace(',','.'):s;const out=Number(normalized);return Number.isFinite(out)?out:0}
+function pricingWorkbookBuffer(rows:any[],lines:any[]=[],modelName='Precificação Clara'){
+  const wb=XLSX.utils.book_new()
+  const data=rows.map((r:any)=>({codigo:r.codigo||'',produto:r.produto||'',marca:r.marca||'',categoria:r.categoria||'',custo:Number(r.custo||0),preco_venda:Number(r.preco_venda||r.precoVenda||0),preco_sugerido:Number(r.preco_sugerido||r.precoSugerido||0),markup:Number(r.markup||0),margem_contribuicao_rs:Number(r.margem_contribuicao_rs||r.mcValue||0),margem_contribuicao_pct:Number(r.margem_contribuicao_pct||r.mcPct||0),status:r.status||'',observacao:r.observacao||''}))
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),'Produtos')
+  if(lines?.length)XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(lines.map((l:any)=>({despesa:l.name||l.nome||'',base:l.basis||l.base||'',valor:Number(l.value||l.valor||0)}))),'Lógica')
+  const info=XLSX.utils.aoa_to_sheet([['Modelo',modelName],['Gerado em',new Date().toLocaleString('pt-BR')]])
+  XLSX.utils.book_append_sheet(wb,info,'Informações')
+  return XLSX.write(wb,{type:'buffer',bookType:'xlsx'})
+}
+
+app.get('/api/pricing/models',async(req,res)=>{if(!pool)return res.json([]);const r=await pool.query(`SELECT id,name,mode,lines,target_margin,markup,active,created_at,updated_at FROM pricing_models WHERE company_id=$1 AND active=true ORDER BY name`,[req.companyId]);res.json(r.rows)})
+app.post('/api/pricing/models',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const {name,mode='SALE',lines=[],targetMargin=20,markup=2}=req.body;const r=await pool.query(`INSERT INTO pricing_models(company_id,name,mode,lines,target_margin,markup) VALUES($1,$2,$3,$4::jsonb,$5,$6) ON CONFLICT(company_id,name) DO UPDATE SET mode=excluded.mode,lines=excluded.lines,target_margin=excluded.target_margin,markup=excluded.markup,active=true,updated_at=now() RETURNING *`,[req.companyId,name,mode,JSON.stringify(lines),targetMargin,markup]);await auditSafe(req.companyId,'PRICING_MODEL_SAVED','pricing_model',r.rows[0].id,{name});res.json(r.rows[0])})
+app.put('/api/pricing/models/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const {name,mode='SALE',lines=[],targetMargin=20,markup=2}=req.body;const r=await pool.query(`UPDATE pricing_models SET name=$3,mode=$4,lines=$5::jsonb,target_margin=$6,markup=$7,updated_at=now() WHERE id=$1 AND company_id=$2 RETURNING *`,[req.params.id,req.companyId,name,mode,JSON.stringify(lines),targetMargin,markup]);if(!r.rowCount)return res.status(404).json({message:'Modelo não encontrado.'});res.json(r.rows[0])})
+app.delete('/api/pricing/models/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});await pool.query(`UPDATE pricing_models SET active=false,updated_at=now() WHERE id=$1 AND company_id=$2`,[req.params.id,req.companyId]);res.json({ok:true})})
+app.get('/api/pricing/template',async(req,res)=>{const rows=[{codigo:'PROD001',produto:'Produto exemplo',custo:32.50,preco_venda:79.90,categoria:'Categoria exemplo',marca:'Marca exemplo',observacao:'Opcional'}],buffer=pricingWorkbookBuffer(rows,[],'Modelo de importação');res.header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition','attachment; filename="modelo-precificacao-clara.xlsx"').send(buffer)})
+app.post('/api/pricing/import',collectUploads,async(req,res)=>{const file=req.uploadedFiles?.[0];if(!file)return res.status(400).json({message:'Selecione uma planilha Excel.'});try{const wb=XLSX.read(file.buffer,{type:'buffer'}),ws=wb.Sheets[wb.SheetNames[0]],raw=XLSX.utils.sheet_to_json(ws,{defval:''}) as any[];if(!raw.length)return res.status(400).json({message:'A planilha não possui produtos.'});const rows=raw.map((row:any)=>{const m:any={};for(const [k,v] of Object.entries(row))m[pricingHeader(k)]=v;return{codigo:String(m.CODIGO||''),produto:String(m.PRODUTO||m.DESCRICAO_DO_ITEM||m.DESCRICAO||''),custo:pricingNumber(m.CUSTO),preco_venda:pricingNumber(m.PRECO_VENDA||m.PRECO||0),categoria:String(m.CATEGORIA||''),marca:String(m.MARCA||''),observacao:String(m.OBSERVACAO||m.OBSERVACOES||'')}}).filter((r:any)=>r.produto);if(!rows.length)return res.status(400).json({message:'Não encontramos a coluna produto. Baixe o modelo ou use um cabeçalho como Produto/Descrição do Item.'});const headers=Object.keys(raw[0]||{});res.json({rows,headers,count:rows.length,mapped:{produto:true,custo:rows.some((r:any)=>r.custo>0),precoVenda:rows.some((r:any)=>r.preco_venda>0)}})}catch(e:any){res.status(400).json({message:'Não foi possível ler a planilha.',detail:e?.message||String(e)})}})
+app.post('/api/pricing/export',async(req,res)=>{const buffer=pricingWorkbookBuffer(req.body.rows||[],req.body.lines||[],req.body.modelName||'Precificação Clara');res.header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').header('Content-Disposition','attachment; filename="precificacao-clara.xlsx"').send(buffer)})
+app.post('/api/pricing/market-compare',async(req,res)=>{const out=await compareMarketProducts(req.body);res.json(out)})
+
 app.get('/api/expected-sources',async(req,res)=>{if(!pool)return res.json([]);const cid=req.companyId,r=await pool.query(`SELECT id,kind,label,frequency,active FROM expected_sources WHERE company_id=$1 ORDER BY label`,[cid]);res.json(r.rows)})
 app.post('/api/expected-sources',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{kind,label,active=true}=req.body;if(!kind||!label)return res.status(400).json({message:'Informe fonte e nome.'});const r=await pool.query(`INSERT INTO expected_sources(company_id,kind,label,active) VALUES($1,$2,$3,$4) ON CONFLICT(company_id,kind) DO UPDATE SET label=excluded.label,active=excluded.active RETURNING *`,[cid,kind,label,active]);res.json(r.rows[0])})
 app.delete('/api/expected-sources/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`UPDATE expected_sources SET active=false WHERE id=$1 AND company_id=$2`,[req.params.id,cid]);res.json({ok:true})})
@@ -359,32 +394,38 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   if(!req.uploadedFiles?.length)return res.status(400).json({message:'Nenhum arquivo recebido.'})
   if(!pool)return res.json({message:`${req.uploadedFiles.length} arquivo(s) lido(s). Configure DATABASE_URL para persistir.`})
 
-  const cid=req.companyId
+  const cid=req.companyId,syncMode=String(req.query?.mode||'').toLowerCase()==='sync'
   let company=await getCompany(cid),processedFiles=0,duplicates=0,retriedFiles=0,records=0,supplierLearned=0,globalShared=0,newAccounts=0,reviewFiles=0,failedFiles=0
-  const results:any[]=[]
+  const results:any[]=[],newSourceFileIds:string[]=[],seenHashes=new Set<string>()
+  const previousFiles=syncMode?(await pool.query(`SELECT id,hash,name FROM source_files WHERE company_id=$1 ORDER BY created_at`,[cid])).rows:[]
+  const previousIds=new Set(previousFiles.map((x:any)=>String(x.id))),originalHashes=new Map(previousFiles.map((x:any)=>[String(x.id),String(x.hash)]))
 
   for(const f of req.uploadedFiles){
     const hash=crypto.createHash('sha256').update(f.buffer).digest('hex')
     let currentSourceFileId:string|null=null
     try{
-      const exists=await pool.query('SELECT id,name,status,record_count,validation_status,kind,status_detail FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash])
+      if(seenHashes.has(hash)){duplicates++;results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo repetido dentro da pasta selecionada.'});continue}
+      seenHashes.add(hash)
+      const exists=await pool.query('SELECT id,name,status,record_count,validation_status,kind,status_detail,hash FROM source_files WHERE company_id=$1 AND hash=$2',[cid,hash])
       if(exists.rowCount){
         const previous=exists.rows[0]
-        const previousCount=n(previous.record_count)
-        // A failed/review stub with zero records must never block a new attempt.
-        // This is especially important after a parser/SQL bug has been fixed in a newer version.
-        const retryable=previousCount===0&&(previous.status!=='IMPORTED'||previous.validation_status==='ERROR'||previous.kind==='UNKNOWN')
-        if(retryable){
-          // Remove any partial rows that could have been written before the previous failure,
-          // then remove the failed source-file stub so the same hash can be processed again.
-          await pool.query('DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2',[cid,previous.id])
-          await pool.query('DELETE FROM source_files WHERE company_id=$1 AND id=$2',[cid,previous.id])
-          retriedFiles++
-          console.log('reprocessing failed import',{companyId:cid,file:f.originalname,previousId:previous.id,previousStatus:previous.status,previousValidation:previous.validation_status})
+        if(syncMode&&previousIds.has(String(previous.id))){
+          // Libera a restrição de hash sem apagar a base anterior. A base antiga só é removida
+          // depois que toda a nova pasta terminar com sucesso.
+          await pool.query(`UPDATE source_files SET hash=$3 WHERE company_id=$1 AND id=$2`,[cid,previous.id,`sync-old-${crypto.randomUUID()}-${hash}`])
         }else{
-          duplicates++
-          results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo já processado para esta empresa.'})
-          continue
+          const previousCount=n(previous.record_count)
+          const retryable=previousCount===0&&(previous.status!=='IMPORTED'||previous.validation_status==='ERROR'||previous.kind==='UNKNOWN')
+          if(retryable){
+            await pool.query('DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2',[cid,previous.id])
+            await pool.query('DELETE FROM source_files WHERE company_id=$1 AND id=$2',[cid,previous.id])
+            retriedFiles++
+            console.log('reprocessing failed import',{companyId:cid,file:f.originalname,previousId:previous.id,previousStatus:previous.status,previousValidation:previous.validation_status})
+          }else{
+            duplicates++
+            results.push({name:f.originalname,status:'DUPLICATE',records:0,detail:'Arquivo já processado para esta empresa.'})
+            continue
+          }
         }
       }
 
@@ -394,6 +435,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
         const supplierBase=parseSupplierBase(f.buffer)
         if(supplierBase.matched){
           const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status) VALUES($1,$2,$3,'SUPPLIER_BASE','IMPORTED','Base de fornecedores aprendida',$4,$5,'NOT_AVAILABLE') RETURNING id`,[cid,f.originalname,hash,supplierBase.records.length,supplierBase.confidence])
+          newSourceFileIds.push(String(sf.rows[0].id))
           const learned=await importSupplierRecords(cid,sf.rows[0].id,supplierBase.records)
           supplierLearned+=learned.learned;globalShared+=learned.shared;newAccounts+=learned.newAccounts;records+=supplierBase.records.length;processedFiles++
           results.push({name:f.originalname,status:'IMPORTED',kind:'SUPPLIER_BASE',records:supplierBase.records.length})
@@ -440,6 +482,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
       const sf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12) RETURNING id`,[cid,f.originalname,hash,parsed.kind,status,detail,parsed.transactions.length,parsed.confidence,parsed.validation?.status||'NOT_AVAILABLE',JSON.stringify(parsed.validation||{}),periodStart,periodEnd])
       currentSourceFileId=sf.rows[0].id
+      newSourceFileIds.push(String(sf.rows[0].id))
       await autoExpectedSource(cid,parsed.kind)
 
       let insertedForFile=0
@@ -471,10 +514,31 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
       try{
         // Never leave partial financial rows behind when a file fails midway.
         if(currentSourceFileId)await pool.query('DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2',[cid,currentSourceFileId])
-        await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation) VALUES($1,$2,$3,'UNKNOWN','REVIEW',$4,0,0,'ERROR',$5::jsonb) ON CONFLICT(company_id,hash) DO UPDATE SET status='REVIEW',status_detail=excluded.status_detail,record_count=0,validation_status='ERROR',validation=excluded.validation,processed_at=now()`,[cid,f.originalname,hash,detail,JSON.stringify({error:String(e?.message||e||'erro desconhecido')})])
+        const failedSf=await pool.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation) VALUES($1,$2,$3,'UNKNOWN','REVIEW',$4,0,0,'ERROR',$5::jsonb) ON CONFLICT(company_id,hash) DO UPDATE SET status='REVIEW',status_detail=excluded.status_detail,record_count=0,validation_status='ERROR',validation=excluded.validation,processed_at=now() RETURNING id`,[cid,f.originalname,hash,detail,JSON.stringify({error:String(e?.message||e||'erro desconhecido')})])
+        if(failedSf.rows[0]?.id)newSourceFileIds.push(String(failedSf.rows[0].id))
       }catch(persistError:any){console.error('failed to persist review file',f.originalname,persistError)}
       results.push({name:f.originalname,status:'ERROR',records:0,detail})
     }
+  }
+
+  if(syncMode){
+    const hardReview=results.some((x:any)=>x.status==='ERROR'||(x.status==='REVIEW'&&n(x.records)===0))
+    if(failedFiles>0||hardReview){
+      // A nova pasta não fica pela metade: remove a tentativa e restaura integralmente a base anterior.
+      if(newSourceFileIds.length){
+        await pool.query(`DELETE FROM classification_rules WHERE company_id=$1 AND source_file_id=ANY($2::uuid[])`,[cid,newSourceFileIds])
+        await pool.query(`DELETE FROM transactions WHERE company_id=$1 AND source_file_id=ANY($2::uuid[])`,[cid,newSourceFileIds])
+        await pool.query(`DELETE FROM source_files WHERE company_id=$1 AND id=ANY($2::uuid[])`,[cid,newSourceFileIds])
+      }
+      for(const old of previousFiles){const original=originalHashes.get(String(old.id));if(original)await pool.query(`UPDATE source_files SET hash=$3 WHERE company_id=$1 AND id=$2`,[cid,old.id,original])}
+      return res.json({message:'Sincronização não aplicada: pelo menos um arquivo não pôde ser lido com segurança. A base anterior foi preservada.',received:req.uploadedFiles.length,processedFiles:0,records:0,duplicates,reviewFiles,failedFiles,syncMode:true,syncApplied:false,results})
+    }
+    if(previousFiles.length){
+      const ids=previousFiles.map((x:any)=>String(x.id))
+      await pool.query(`DELETE FROM transactions WHERE company_id=$1 AND source_file_id=ANY($2::uuid[])`,[cid,ids])
+      await pool.query(`DELETE FROM source_files WHERE company_id=$1 AND id=ANY($2::uuid[])`,[cid,ids])
+    }
+    await auditSafe(cid,'FOLDER_SYNC_APPLIED','source_files','folder',{received:req.uploadedFiles.length,previousFiles:previousFiles.length,newFiles:newSourceFileIds.length})
   }
 
   await applyAccountingPolicy(cid)
@@ -486,13 +550,15 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`)
 
   const received=req.uploadedFiles.length
-  const summary=`Importação concluída: ${received} arquivo(s) recebido(s), ${processedFiles} processado(s), ${records} lançamento(s). ${retriedFiles?retriedFiles+' falha(s) anterior(es) reprocessada(s). ':''}${duplicates?duplicates+' duplicado(s) já processado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`
-  res.json({message:summary,received,processedFiles,records,duplicates,retriedFiles,reviewFiles,failedFiles,results})
+  const prefix=syncMode?'Sincronização concluída':'Importação concluída'
+  const syncText=syncMode?` A pasta agora é a base atual: ${previousFiles.length} arquivo(s) anterior(es) foram substituídos. `:''
+  const summary=`${prefix}: ${received} arquivo(s) recebido(s), ${processedFiles} processado(s), ${records} lançamento(s).${syncText}${retriedFiles?retriedFiles+' falha(s) anterior(es) reprocessada(s). ':''}${duplicates?duplicates+' duplicado(s) ignorado(s). ':''}${reviewFiles?reviewFiles+' arquivo(s) precisam de revisão. ':''}${extras.length?extras.join('; ')+'. ':''}${aiUpdated?`Luna sugeriu ${aiUpdated} novo(s) nome(s). `:''}${review?review+' nome(s) precisam de confirmação.':'Classificações em dia.'}`
+  res.json({message:summary,received,processedFiles,records,duplicates,retriedFiles,reviewFiles,failedFiles,syncMode,syncApplied:syncMode?true:undefined,results})
 })
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.4.5',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.4.5',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.4.5',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.5.0',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.5.0',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.5.0',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -503,6 +569,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Clara BPO v0.4.5 on :${PORT}`)
+  console.log(`Clara BPO v0.5.0 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})

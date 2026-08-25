@@ -21,3 +21,22 @@ export async function adaptUnknownPdf({text,company}){
   const response=await client().responses.create({model:model(),reasoning:{effort:'none'},store:false,max_output_tokens:6000,instructions:'Você é o adaptador de arquivos do Clara. Extraia somente movimentações financeiras claramente presentes no texto de um PDF. Não invente valores, datas ou descrições. amount deve ser positivo para ENTRADA e negativo para SAIDA. Datas em YYYY-MM-DD. Ignore saldos, subtotais e cabeçalhos. Se não houver segurança, retorne transactions vazio.',input:JSON.stringify({company:{sector:company?.sector||'',activity:company?.activity||''},pdf_text:inputText}),text:{format:{type:'json_schema',name:'clara_pdf_adaptation',strict:true,schema}}})
   try{return JSON.parse(response.output_text||'{}')}catch{return null}
 }
+
+export async function compareMarketProducts({product,brand='',category='',referencePrice=0}){
+  if(process.env.AI_ENABLED!=='true'||!process.env.OPENAI_API_KEY||!product)return{enabled:false,results:[],summary:'Ative a Luna nas configurações do servidor para pesquisar preços de mercado.'}
+  const schema={type:'object',additionalProperties:false,properties:{summary:{type:'string'},results:{type:'array',maxItems:8,items:{type:'object',additionalProperties:false,properties:{product:{type:'string'},source:{type:'string'},url:{type:'string'},price:{type:['number','null']},condition:{type:'string'},similarity:{type:'integer',minimum:0,maximum:100},note:{type:'string'}},required:['product','source','url','price','condition','similarity','note']}}},required:['summary','results']}
+  try{
+    const response=await (client().responses.create as any)({
+      model:model(),reasoning:{effort:'none'},store:false,max_output_tokens:2600,
+      tools:[{type:'web_search'}],
+      instructions:'Você é a Luna, assistente de precificação da Clara BPO. Pesquise na internet produtos realmente comparáveis no Brasil. Não invente preço nem URL. Priorize lojas e fabricantes reconhecíveis e resultados recentes. Compare características, marca, categoria e unidade/quantidade. Preços são apenas referência de mercado. Retorne somente o JSON estruturado solicitado.',
+      input:JSON.stringify({product,brand,category,reference_price:Number(referencePrice||0),country:'Brasil',currency:'BRL'}),
+      text:{format:{type:'json_schema',name:'clara_market_comparison',strict:true,schema}}
+    })
+    const out=JSON.parse(response.output_text||'{}')
+    return{enabled:true,summary:out.summary||'',results:Array.isArray(out.results)?out.results:[]}
+  }catch(e:any){
+    console.error('market compare',e?.message||e)
+    return{enabled:true,results:[],summary:'A Luna não conseguiu concluir a pesquisa de mercado agora. Tente novamente em alguns instantes.'}
+  }
+}

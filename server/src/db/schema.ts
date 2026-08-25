@@ -129,6 +129,19 @@ export const expectedSources = pgTable('expected_sources', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
 }, table => ({ companyKind: uniqueIndex('expected_sources_company_kind_uq').on(table.companyId, table.kind) }))
 
+export const pricingModels = pgTable('pricing_models', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  mode: text('mode').notNull().default('SALE'),
+  lines: jsonb('lines').notNull().default([]),
+  targetMargin: numeric('target_margin').default('20'),
+  markup: numeric('markup').default('2'),
+  active: boolean('active').default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
+}, table => ({ companyName: uniqueIndex('pricing_models_company_name_uq').on(table.companyId, table.name) }))
+
 export const periodClosures = pgTable('period_closures', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
