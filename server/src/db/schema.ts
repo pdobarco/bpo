@@ -24,6 +24,8 @@ export const sourceFiles = pgTable('source_files', {
   confidence: numeric('confidence').default('0'),
   validationStatus: text('validation_status').default('NOT_AVAILABLE'),
   validation: jsonb('validation').default({}),
+  mimeType: text('mime_type'),
+  importScope: text('import_scope').default('GENERAL'),
   periodStart: date('period_start'),
   periodEnd: date('period_end'),
   processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
@@ -54,6 +56,7 @@ export const transactions = pgTable('transactions', {
   dueAt: date('due_at'),
   paidAt: timestamp('paid_at', { withTimezone: true }),
   description: text('description').notNull(),
+  customTitle: text('custom_title'),
   normalizedParty: text('normalized_party'),
   counterpartyDocument: text('counterparty_document'),
   direction: text('direction').notNull(),
@@ -128,6 +131,53 @@ export const expectedSources = pgTable('expected_sources', {
   active: boolean('active').default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
 }, table => ({ companyKind: uniqueIndex('expected_sources_company_kind_uq').on(table.companyId, table.kind) }))
+
+
+export const titleRewriteRules = pgTable('title_rewrite_rules', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  pattern: text('pattern').notNull(),
+  normalizedParty: text('normalized_party'),
+  customTitle: text('custom_title').notNull(),
+  active: boolean('active').default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
+}, table => ({ companyPattern: uniqueIndex('title_rewrite_rules_company_pattern_uq').on(table.companyId, table.pattern) }))
+
+export const payables = pgTable('payables', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  sourceFileId: uuid('source_file_id').references(() => sourceFiles.id, { onDelete: 'set null' }),
+  transactionId: uuid('transaction_id').references(() => transactions.id, { onDelete: 'set null' }),
+  originType: text('origin_type').notNull().default('MANUAL'),
+  supplier: text('supplier'),
+  supplierDocument: text('supplier_document'),
+  description: text('description').notNull(),
+  issueDate: date('issue_date'),
+  dueDate: date('due_date').notNull(),
+  amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+  category: text('category'),
+  accountId: uuid('account_id').references(() => chartAccounts.id, { onDelete: 'set null' }),
+  classificationStatus: text('classification_status').default('PENDING'),
+  classificationSource: text('classification_source'),
+  paymentStatus: text('payment_status').default('OPEN'),
+  paidAmount: numeric('paid_amount', { precision: 14, scale: 2 }).default('0'),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
+  paymentMethod: text('payment_method'),
+  invoiceRef: text('invoice_ref'),
+  fingerprint: text('fingerprint').notNull(),
+  raw: jsonb('raw').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()
+}, table => ({ companyFingerprint: uniqueIndex('payables_company_fingerprint_uq').on(table.companyId, table.fingerprint) }))
+
+export const reconciliationIgnores = pgTable('reconciliation_ignores', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  companyId: uuid('company_id').references(() => companies.id, { onDelete: 'cascade' }),
+  transactionId: uuid('transaction_id').references(() => transactions.id, { onDelete: 'cascade' }),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow()
+}, table => ({ companyTransaction: uniqueIndex('reconciliation_ignores_company_transaction_uq').on(table.companyId, table.transactionId) }))
 
 export const pricingModels = pgTable('pricing_models', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),

@@ -81,6 +81,9 @@ export async function initDb() {
   await addColumn('source_files', `period_start DATE`)
   await addColumn('source_files', `period_end DATE`)
   await addColumn('source_files', `processed_at TIMESTAMPTZ DEFAULT now()`)
+  await addColumn('source_files', `content BYTEA`)
+  await addColumn('source_files', `mime_type TEXT`)
+  await addColumn('source_files', `import_scope TEXT DEFAULT 'GENERAL'`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS chart_accounts(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
@@ -110,6 +113,7 @@ export async function initDb() {
   await addColumn('transactions', `accounting_role TEXT DEFAULT 'BANK_MOVEMENT'`)
   await addColumn('transactions', `economic_key TEXT`)
   await addColumn('transactions', `source_page INT`)
+  await addColumn('transactions', `custom_title TEXT`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS classification_rules(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), scope TEXT NOT NULL DEFAULT 'GLOBAL',
@@ -138,6 +142,26 @@ export async function initDb() {
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
     kind TEXT NOT NULL, label TEXT NOT NULL, frequency TEXT DEFAULT 'MONTHLY', active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,kind))`)
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS title_rewrite_rules(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    pattern TEXT NOT NULL, normalized_party TEXT, custom_title TEXT NOT NULL, active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,pattern))`)
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS payables(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL, transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
+    origin_type TEXT NOT NULL DEFAULT 'MANUAL', supplier TEXT, supplier_document TEXT, description TEXT NOT NULL,
+    issue_date DATE, due_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL, category TEXT,
+    account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL, classification_status TEXT DEFAULT 'PENDING',
+    classification_source TEXT, payment_status TEXT DEFAULT 'OPEN', paid_amount NUMERIC(14,2) DEFAULT 0,
+    paid_at TIMESTAMPTZ, payment_method TEXT, invoice_ref TEXT, fingerprint TEXT NOT NULL, raw JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,fingerprint))`)
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS reconciliation_ignores(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    transaction_id UUID REFERENCES transactions(id) ON DELETE CASCADE, reason TEXT, created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(company_id,transaction_id))`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS pricing_models(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
@@ -192,7 +216,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.5.0',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.6.0',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
   // O banco do Claria nasceu antes do Drizzle. O bootstrap acima é intencionalmente idempotente para adotar bancos existentes;
