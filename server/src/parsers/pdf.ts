@@ -2,7 +2,21 @@ const MONTHS={JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:1
 const money=(s:any)=>{if(s===null||s===undefined||s==='')return null;let n=String(s).replace(/R\$/gi,'').replace(/[−–—]/g,'-').replace(/\s/g,'').replace(/\./g,'').replace(',','.');const neg=n.includes('-');n=n.replace(/[^0-9.]/g,'');const v=Number(n||0);return neg?-v:v}
 const brDate=(d:string)=>{const[a,b,c]=d.split('/');return new Date(`${c}-${b}-${a}T12:00:00-03:00`)}
 const isoDate=(d:string|null)=>d?new Date(`${d}T12:00:00-03:00`):null
-const dedupe=(arr:any[])=>{const s=new Set;return arr.filter(x=>{const k=`${x.occurredAt?.toISOString()}|${x.description}|${x.amount}|${x.externalId||''}`;if(s.has(k))return false;s.add(k);return true})}
+const dedupe=(arr:any[])=>{
+  // Never collapse financial rows only because date/description/value are equal.
+  // Real statements and card invoices can legitimately contain repeated purchases
+  // with the same merchant and amount on the same day. Only a stable external ID
+  // is safe enough for parser-level deduplication. File-level hash protection still
+  // prevents importing the exact same document twice.
+  const seenExternal=new Set<string>()
+  return arr.filter(x=>{
+    const id=String(x.externalId||'').trim()
+    if(!id)return true
+    if(seenExternal.has(id))return false
+    seenExternal.add(id)
+    return true
+  })
+}
 const normalizeText=(s:string)=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()
 
 function paymentMethod(desc=''){
@@ -29,13 +43,22 @@ async function extractPdfLayoutText(buffer:Buffer){
     for(let pageNo=1;pageNo<=doc.numPages;pageNo++){
       const page=await doc.getPage(pageNo)
       const content=await page.getTextContent()
+      const viewport=page.getViewport({scale:1})
       const rows=new Map<number,Array<{x:number;text:string}>>()
       for(const item of content.items||[]){
         const text=String(item?.str||'').trim();if(!text)continue
-        const x=Number(item?.transform?.[4]||0),rawY=Number(item?.transform?.[5]||0),y=Math.round(rawY/2.2)*2.2
+        // item.transform is expressed in the PDF page coordinate system. Using it
+        // directly works for normal portrait PDFs, but fails for PDFs whose pages
+        // carry /Rotate 90 or 270 (PagBank sales reports are a real example).
+        // Applying the viewport transform converts every text item to displayed
+        // screen coordinates before rows are reconstructed.
+        const tx=pdfjs.Util.transform(viewport.transform,item.transform)
+        const x=Number(tx?.[4]||0),rawY=Number(tx?.[5]||0),y=Math.round(rawY/2.2)*2.2
         const row=rows.get(y)||[];row.push({x,text});rows.set(y,row)
       }
-      const lines=[...rows.entries()].sort((a,b)=>b[0]-a[0]).map(([,cells])=>cells.sort((a,b)=>a.x-b.x).map(c=>c.text).join('    ').replace(/\s+/g,' ').trim()).filter(Boolean)
+      // Viewport coordinates grow from top to bottom, so ascending Y reproduces
+      // the visual reading order regardless of the PDF page rotation.
+      const lines=[...rows.entries()].sort((a,b)=>a[0]-b[0]).map(([,cells])=>cells.sort((a,b)=>a.x-b.x).map(c=>c.text).join('    ').replace(/\s+/g,' ').trim()).filter(Boolean)
       pages.push(lines.join('\n'))
       try{page.cleanup?.()}catch{}
     }

@@ -4,7 +4,7 @@ const MONTHS={JAN:1,FEV:2,MAR:3,ABR:4,MAI:5,JUN:6,JUL:7,AGO:8,SET:9,OUT:10,NOV:1
 const money=s=>{if(s===null||s===undefined||s==='')return null;let n=String(s).replace(/R\$/gi,'').replace(/\s/g,'').replace(/\./g,'').replace(',','.');const neg=n.includes('-');n=n.replace(/[^0-9.]/g,'');const v=Number(n||0);return neg?-v:v}
 const brDate=d=>{const [a,b,c]=d.split('/');return new Date(`${c}-${b}-${a}T12:00:00-03:00`)}
 const isoDate=d=>d?new Date(`${d}T12:00:00-03:00`):null
-const dedupe=arr=>{const s=new Set;return arr.filter(x=>{const k=`${x.occurredAt?.toISOString()}|${x.description}|${x.amount}|${x.externalId||''}`;if(s.has(k))return false;s.add(k);return true})}
+const dedupe=arr=>{const s=new Set;return arr.filter(x=>{const id=String(x.externalId||'').trim();if(!id)return true;if(s.has(id))return false;s.add(id);return true})}
 
 function paymentMethod(desc=''){
   const t=desc.toUpperCase()

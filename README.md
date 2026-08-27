@@ -1,4 +1,4 @@
-# Clara BPO Financeiro — v0.6.0
+# Clara BPO Financeiro — v0.6.1
 
 Versão consolidada da próxima evolução da Clara, construída sobre a v0.5.0.
 
@@ -92,15 +92,15 @@ A migration `server/drizzle/0003_operational_v060.sql` adiciona:
 - justificativas de conciliação (`reconciliation_ignores`).
 
 ## Versão
-- App: `0.6.0`
+- App: `0.6.1`
 - A versão aparece no rodapé do menu lateral.
-- `/api/health` deve retornar `version: 0.6.0`.
+- `/api/health` deve retornar `version: 0.6.1`.
 
 ## Deploy rápido
 1. Faça backup do banco antes da publicação.
 2. Substitua o conteúdo do repositório pelos arquivos deste pacote.
 3. Commit/push no GitHub conectado ao Railway.
 4. Aguarde build e migrations.
-5. Acesse `/api/health` e confirme `version: 0.6.0` e `schema: 0.6.0`.
+5. Acesse `/api/health` e confirme `version: 0.6.1` e `schema: 0.6.1`.
 6. Faça recarga forçada do navegador/PWA.
-7. Execute `docs/teste-aceite-v0.6.0.md`.
+7. Execute `docs/teste-aceite-v0.6.1.md`.

@@ -216,7 +216,7 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.6.0',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.6.1',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
   // O banco do Claria nasceu antes do Drizzle. O bootstrap acima é intencionalmente idempotente para adotar bancos existentes;
