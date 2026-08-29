@@ -37,6 +37,14 @@ let server=fs.readFileSync('server/src/index.ts','utf8')
 server=server.replaceAll("version:'0.6.1'","version:'0.7.0'").replace('Clara BPO v0.6.1 on','Clara BPO v0.7.0 on')
 fs.writeFileSync('server/src/index.ts',server)
 
+patchFile('server/src/v070.ts',[
+  {
+    name:'classified direction type',
+    before:"const account=await ensureAccount(cid,category,direction)\n    await pool!.query(`INSERT INTO transactions",
+    after:"const account=await ensureAccount(cid,category,direction as 'ENTRADA'|'SAIDA')\n    await pool!.query(`INSERT INTO transactions"
+  }
+])
+
 patchFile('client/src/main.tsx',[
   {
     name:'v070 imports',
