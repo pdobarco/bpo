@@ -42,6 +42,29 @@ patchFile('server/src/v070.ts',[
     name:'classified direction type',
     before:"const account=await ensureAccount(cid,category,direction)\n    await pool!.query(`INSERT INTO transactions",
     after:"const account=await ensureAccount(cid,category,direction as 'ENTRADA'|'SAIDA')\n    await pool!.query(`INSERT INTO transactions"
+  },
+  {
+    name:'classified import source id',
+    before:"for(const f of req.uploadedFiles){const hash=crypto.createHash('sha256').update(f.buffer).digest('hex');try{",
+    after:"for(const f of req.uploadedFiles){const hash=crypto.createHash('sha256').update(f.buffer).digest('hex');let sourceFileId:string|null=null;try{"
+  },
+  {
+    name:'classified import remember source id',
+    before:"RETURNING id`,[cid,f.originalname,hash,type,f.buffer,f.mimetype]);if(type==='PAYABLES'||type==='RECEIVABLES')",
+    after:"RETURNING id`,[cid,f.originalname,hash,type,f.buffer,f.mimetype]);sourceFileId=sf.rows[0].id;if(type==='PAYABLES'||type==='RECEIVABLES')"
+  },
+  {
+    name:'classified import error diagnostic',
+    before:"results.push({name:f.originalname,status,kind:type,records:recordCount,detail})}catch(e:any){results.push({name:f.originalname,status:'ERROR',detail:e?.message||String(e)})}}",
+    after:"results.push({name:f.originalname,status,kind:type,records:recordCount,detail})}catch(e:any){const errorDetail=e?.message||String(e);if(sourceFileId)await pool.query(`UPDATE source_files SET status='REVIEW',status_detail=$3,validation_status='ERROR',validation=$4::jsonb,processed_at=now() WHERE id=$1 AND company_id=$2`,[sourceFileId,cid,errorDetail,JSON.stringify({error:errorDetail})]).catch(()=>{});results.push({name:f.originalname,status:'ERROR',detail:errorDetail})}}"
+  }
+])
+
+patchFile('server/src/db.ts',[
+  {
+    name:'retire legacy expected source kinds',
+    before:"const companyRows = await pool.query('SELECT id FROM companies')",
+    after:"await pool.query(`UPDATE expected_sources SET active=false WHERE kind IN ('NUBANK_STATEMENT','NUBANK_CARD','PAGBANK_STATEMENT','PAGBANK_SALES','TABULAR')`)\n  const companyRows = await pool.query('SELECT id FROM companies')"
   }
 ])
 
@@ -52,6 +75,11 @@ patchFile('client/src/main.tsx',[
     after:"import{queryClient}from'./queryClient'\nimport{FilesPageV070,PayablesPageV070,ReceivablesPage,ReconciliationPageV070,PresentationPage,DemoSessionGate,DemoNotice}from'./v070'\nimport'./styles.css'"
   },
   {
+    name:'generic source types',
+    before:"const SOURCE_TYPES=[['NUBANK_STATEMENT','Nubank — Conta'],['NUBANK_CARD','Nubank — Cartão'],['PAGBANK_STATEMENT','PagBank — Conta'],['PAGBANK_SALES','PagBank — Vendas'],['TABULAR','Planilha financeira']]",
+    after:"const SOURCE_TYPES=[['BANK_STATEMENT','Extrato Bancário'],['CARD_MACHINE_STATEMENT','Extrato Maquineta Cartão'],['CREDIT_CARD_INVOICE','Fatura Cartão de Crédito'],['PAYABLES','Contas a Pagar'],['RECEIVABLES','Contas a Receber']]"
+  },
+  {
     name:'page types',
     before:"type Page='resumo'|'arquivos'|'lancamentos'|'conciliacao'|'dre'|'contas_pagar'|'precificacao'|'cadastros'|'configuracoes'|'administracao'",
     after:"type Page='resumo'|'arquivos'|'lancamentos'|'conciliacao'|'dre'|'contas_pagar'|'contas_receber'|'precificacao'|'apresentacao'|'cadastros'|'configuracoes'|'administracao'"
@@ -60,6 +88,11 @@ patchFile('client/src/main.tsx',[
     name:'main app demo flag',
     before:"function MainApp({session,onLogout,onSessionChange}:any){\n  const[page,setPage]=useState<Page>('resumo')",
     after:"function MainApp({session,onLogout,onSessionChange,demoMode=false}:any){\n  const[page,setPage]=useState<Page>('arquivos')"
+  },
+  {
+    name:'generic source form default',
+    before:"[sourceForm,setSourceForm]=useState({kind:'NUBANK_STATEMENT',label:'Nubank — Conta'})",
+    after:"[sourceForm,setSourceForm]=useState({kind:'BANK_STATEMENT',label:'Extrato Bancário'})"
   },
   {
     name:'company switch opens files',
@@ -100,6 +133,11 @@ patchFile('client/src/main.tsx',[
     name:'full demo root',
     before:"if(path==='/demonstracao')return <DemoApp/>",
     after:"if(path==='/demonstracao')return <DemoSessionGate render={(demoSession:any)=><MainApp session={demoSession} onLogout={()=>navigate('/')} onSessionChange={()=>{}} demoMode/>}/>"
+  },
+  {
+    name:'skip real session lookup in demo',
+    before:"useEffect(()=>{const token=localStorage.getItem(TOKEN_KEY);if(!token){setLoading(false);return}apiJson('/api/auth/me')",
+    after:"useEffect(()=>{if(location.pathname==='/demonstracao'){setLoading(false);return}const token=localStorage.getItem(TOKEN_KEY);if(!token){setLoading(false);return}apiJson('/api/auth/me')"
   }
 ])
 
