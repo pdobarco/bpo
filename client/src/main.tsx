@@ -4,23 +4,25 @@ import{QueryClientProvider,useQuery,useQueryClient}from'@tanstack/react-query'
 import{Home,FolderOpen,ListChecks,RefreshCcw,BarChart3,Settings,Users,X,CalendarDays,ShieldCheck,Search,ArrowUpRight,ArrowDownRight,CheckCircle2,AlertTriangle,Clock3,Pencil,Save,Plus,Trash2,BookOpen,Landmark,Database,History,WalletCards,Lock,Unlock,Eye,Menu,Check,Brain,FileSpreadsheet,SlidersHorizontal,CircleAlert,Calculator,Download,Upload,Sparkles,ChevronDown,ChevronRight,Percent}from'lucide-react'
 import{apiFetch,apiJson,COMPANY_KEY,fetchTransactions,TOKEN_KEY}from'./api'
 import{queryClient}from'./queryClient'
-import{FilesPageV070,PayablesPageV070,ReceivablesPage,ReconciliationPageV070,PresentationPage,DemoSessionGate,DemoNotice}from'./v070'
+import{FilesPageV070,PresentationPage,DemoSessionGate,DemoNotice}from'./v070'
+import{CashFlowPageV080,PayablesPageV080,ReceivablesPageV080,ReconciliationPageV080}from'./v080'
+import{CashAvailabilityCard}from'./v080dash'
 import'./styles.css'
 
 type Session={user:{id:string,email:string,name:string,role:string,status:string},companies:any[]}
-type Page='resumo'|'arquivos'|'lancamentos'|'conciliacao'|'dre'|'contas_pagar'|'contas_receber'|'precificacao'|'apresentacao'|'cadastros'|'configuracoes'|'administracao'
+type Page='resumo'|'arquivos'|'lancamentos'|'conciliacao'|'contas_pagar'|'contas_receber'|'fluxo_caixa'|'dre'|'precificacao'|'apresentacao'|'cadastros'|'configuracoes'|'administracao'
 
 const BRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'})
 const fmt=(v:any)=>BRL.format(Number(v||0))
 const num=(v:any)=>Number(v||0)
 const titleCase=(s:any)=>String(s||'').toLowerCase().replace(/\b\p{L}/gu,c=>c.toUpperCase())
-const APP_VERSION='0.7.1'
+const APP_VERSION='0.8.0'
 const currentPeriod=new Date().toISOString().slice(0,7)
 const monthName=(p:string)=>{const[y,m]=p.split('-');return new Date(Number(y),Number(m)-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}
 const dateOnly=(v:any)=>{if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:''}
 const dateFmt=(v:any)=>{const d=dateOnly(v);if(!d)return'—';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`}
 const roleLabel=(r:string)=>({MASTER:'Master',ADMIN:'Administrador',OPERATOR:'Operador',VIEWER:'Visualizador'}[r]||r)
-const SOURCE_TYPES=[['BANK_STATEMENT','Extrato Bancário'],['CARD_MACHINE_STATEMENT','Extrato Maquineta Cartão'],['CREDIT_CARD_INVOICE','Fatura Cartão de Crédito'],['PAYABLES','Contas a Pagar'],['RECEIVABLES','Contas a Receber']]
+const SOURCE_TYPES=[['BANK_STATEMENT','Extrato Bancário'],['CARD_MACHINE_STATEMENT','Extrato Maquineta Cartão'],['CREDIT_CARD_INVOICE','Fatura Cartão de Crédito'],['SALES_REPORT','Relatório de Vendas / Caixa'],['PAYABLES','Contas a Pagar'],['RECEIVABLES','Contas a Receber']]
 const DRE_OPTIONS=[['RECEITA_BRUTA','Receita bruta'],['DEDUCOES_RECEITA','Deduções da receita'],['CUSTOS','Custos / CMV'],['DESPESAS_OPERACIONAIS','Despesas operacionais'],['RESULTADO_FINANCEIRO','Resultado financeiro'],['OUTRAS_RECEITAS_DESPESAS','Outras receitas / despesas'],['FORA_DRE','Fora da DRE']]
 const TYPE_OPTIONS=[['REVENUE','Receita'],['DEDUCTION','Dedução'],['COST','Custo'],['EXPENSE','Despesa'],['FINANCIAL','Financeiro'],['TRANSFER','Transferência'],['EQUITY','Sócios / Patrimônio'],['GROUP','Grupo']]
 const fallbackCategories=['Receita de vendas','Compra de mercadoria / insumos','Fretes e entregas','Embalagens','Marketing e anúncios','Sistemas e tecnologia','Energia elétrica','Água e saneamento','Aluguel e ocupação','Contabilidade e serviços profissionais','Serviços terceirizados','Material de escritório / gráfica','Taxas bancárias e financeiras','Folha / pessoas','Transferência entre contas próprias','Aporte / Empréstimo','Liquidação de cartão de crédito','Retirada do sócio','Outras despesas']
@@ -169,23 +171,24 @@ function MainApp({session,onLogout,onSessionChange,demoMode=false}:any){
   async function switchCompany(id:string){localStorage.setItem(COMPANY_KEY,id);await tanstack.invalidateQueries();setPage('arquivos');window.location.reload()}
   function logout(){if(demoMode){onLogout?.();navigate('/');return}apiJson('/api/auth/logout',{method:'POST'}).catch(()=>{});localStorage.removeItem(TOKEN_KEY);localStorage.removeItem(COMPANY_KEY);onLogout();navigate('/')}
 
-  const nav:[Page,any,string][]=[['resumo',Home,'Resumo'],['arquivos',FolderOpen,'Arquivos'],['lancamentos',ListChecks,'Lançamentos'],['conciliacao',RefreshCcw,'Conciliação'],['dre',BarChart3,'DRE / Resultados'],['contas_pagar',WalletCards,'Contas a Pagar'],['contas_receber',ArrowDownRight,'Contas a Receber'],['precificacao',Calculator,'Precificação'],['apresentacao',FileSpreadsheet,'Apresentação'],['cadastros',Landmark,'Cadastros'],['configuracoes',Settings,'Configurações']]
-  if(session.user.role==='MASTER')nav.push(['administracao',Users,'Administração'])
+  const nav:[Page,any,string,string][]=[['arquivos',FolderOpen,'Arquivos','ROTINA FINANCEIRA'],['lancamentos',ListChecks,'Lançamentos / Classificação','ROTINA FINANCEIRA'],['conciliacao',RefreshCcw,'Conciliação','ROTINA FINANCEIRA'],['contas_pagar',WalletCards,'Contas a Pagar','ROTINA FINANCEIRA'],['contas_receber',ArrowDownRight,'Contas a Receber','ROTINA FINANCEIRA'],['resumo',Home,'Resumo','GESTÃO'],['fluxo_caixa',Landmark,'Fluxo de Caixa','GESTÃO'],['dre',BarChart3,'DRE / Resultados','GESTÃO'],['apresentacao',FileSpreadsheet,'Apresentação','GESTÃO'],['precificacao',Calculator,'Precificação','GESTÃO'],['cadastros',Landmark,'Cadastros','ESTRUTURA'],['configuracoes',Settings,'Configurações','ESTRUTURA']]
+  if(session.user.role==='MASTER')nav.push(['administracao',Users,'Administração','ADMINISTRAÇÃO'])
   const renderPage=()=>{
     if(page==='resumo')return <DashboardPage data={data} dre={dre} dreComp={dreComp} reconciliation={reconciliation} period={period} recentTx={recentTx} status={status} onGo={(p:Page)=>setPage(p)}/>
     if(page==='arquivos')return <FilesPageV070 sourceHealth={sourceHealth} allSourceFiles={allSourceFiles} canWrite={canWrite} folderRef={folderRef} fileRef={fileRef} refresh={refresh} onGoTransactions={()=>setPage('lancamentos')}/>
     if(page==='lancamentos')return <TransactionsPage reviewMode={reviewMode} setReviewMode={setReviewMode} groups={groups} categories={categories} confirmGroup={confirmGroup} askLuna={askLuna} busy={busy} query={transactionsQuery} transactions={transactions} filters={filters} setFilters={setFilters} sort={sort} toggleSort={toggleSort} expanded={expanded} setExpanded={setExpanded} editingTx={editingTx} startTxEdit={startTxEdit} setEditingTx={setEditingTx} txEdit={txEdit} setTxEdit={setTxEdit} saveTxEdit={saveTxEdit} chartAccounts={chartAccounts} canWrite={canWrite} confirmTransactions={confirmTransactions}/>
-    if(page==='conciliacao')return <ReconciliationPageV070 reconciliation={reconciliation} sourceHealth={sourceHealth} period={period} refresh={refresh}/>
+    if(page==='conciliacao')return <ReconciliationPageV080 period={period}/>
+    if(page==='contas_pagar')return <PayablesPageV080 period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
+    if(page==='contas_receber')return <ReceivablesPageV080 period={period} canWrite={canWrite}/>
+    if(page==='fluxo_caixa')return <CashFlowPageV080 period={period}/>
     if(page==='dre')return <DrePage dre={dre} dreComp={dreComp} dreMode={dreMode} setDreMode={setDreMode} period={period} status={status} closePeriod={closePeriod} reopenPeriod={reopenPeriod} canAdmin={canAdminCompany}/>
-    if(page==='contas_pagar')return <PayablesPageV070 period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
-    if(page==='contas_receber')return <ReceivablesPage period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
     if(page==='precificacao')return <PricingPage canWrite={canWrite}/>
     if(page==='apresentacao')return <PresentationPage period={period}/>
     if(page==='cadastros')return <CadastrosPage companyDraft={companyDraft} setCompanyDraft={setCompanyDraft} saveCompany={saveCompany} bankForm={bankForm} setBankForm={setBankForm} addBank={addBank} companyAccounts={companyAccounts} canAdmin={canAdminCompany}/>
     if(page==='configuracoes')return <ConfigPage tab={configTab} setTab={setConfigTab} chartAccounts={chartAccounts} accountForm={accountForm} setAccountForm={setAccountForm} saveAccount={saveAccount} resetAccount={resetAccount} disableAccount={disableAccount} expectedSources={expectedSources} sourceForm={sourceForm} setSourceForm={setSourceForm} addSource={addSource} auditRows={auditRows} canAdmin={canAdminCompany}/>
     return <AdminPage tab={adminTab} setTab={setAdminTab} companies={adminCompanies} users={adminUsers} companyForm={companyForm} setCompanyForm={setCompanyForm} createCompany={createCompany} toggleCompany={toggleCompany} userForm={userForm} setUserForm={setUserForm} saveAdminUser={saveAdminUser} editAdminUser={editAdminUser} toggleUser={toggleUser}/>
   }
-  return <div className="app-shell"><aside className={'sidebar '+(mobileMenu?'open':'')}><div className="sidebar-top"><Logo/><button className="mobile-close" onClick={()=>setMobileMenu(false)}><X/></button></div><nav>{nav.map(([id,Icon,label])=><button key={id} className={page===id?'active':''} onClick={()=>{setPage(id);setMobileMenu(false)}}><Icon/>{label}{id==='lancamentos'&&groups.length>0&&<span className="nav-count">{groups.length}</span>}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-version">Clara BPO · v{APP_VERSION}</div><div className="sidebar-user"><div className="avatar">{session.user.name?.slice(0,2).toUpperCase()}</div><div><b>{session.user.name}</b><span>{roleLabel(session.user.role)}</span></div></div><button onClick={logout}><X/>Sair</button></div></aside><main className="app-main"><header className="topbar"><button className="menu-toggle" onClick={()=>setMobileMenu(true)}><Menu/></button><div className="top-welcome"><b>Olá, {session.user.name?.split(' ')[0]}! 👋</b><span>Aqui está a visão financeira da sua empresa.</span></div>{demoMode&&<DemoNotice/>}<div className="top-controls"><select className="company-select" value={selectedCompanyId} onChange={e=>switchCompany(e.target.value)}>{session.companies.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select><div className="period-control"><CalendarDays/><select value={period} onChange={e=>setPeriod(e.target.value)}>{periods.map(p=><option key={p} value={p}>{monthName(p)}</option>)}</select></div><div className={'quality '+(num(status.quality)>=95?'good':num(status.quality)>=80?'warn':'bad')}><ShieldCheck/>Dados {num(status.quality)}%</div></div></header>{renderPage()}</main></div>
+  return <div className="app-shell"><aside className={'sidebar '+(mobileMenu?'open':'')}><div className="sidebar-top"><Logo/><button className="mobile-close" onClick={()=>setMobileMenu(false)}><X/></button></div><nav>{nav.map(([id,Icon,label,group],i)=><React.Fragment key={id}>{(i===0||nav[i-1]?.[3]!==group)&&<div className="nav-section-label">{group}</div>}<button className={page===id?'active':''} onClick={()=>{setPage(id);setMobileMenu(false)}}><Icon/>{label}{id==='lancamentos'&&groups.length>0&&<span className="nav-count">{groups.length}</span>}</button></React.Fragment>)}</nav><div className="sidebar-bottom"><div className="sidebar-version">Clara BPO · v{APP_VERSION}</div><div className="sidebar-user"><div className="avatar">{session.user.name?.slice(0,2).toUpperCase()}</div><div><b>{session.user.name}</b><span>{roleLabel(session.user.role)}</span></div></div><button onClick={logout}><X/>Sair</button></div></aside><main className="app-main"><header className="topbar"><button className="menu-toggle" onClick={()=>setMobileMenu(true)}><Menu/></button><div className="top-welcome"><b>Olá, {session.user.name?.split(' ')[0]}! 👋</b><span>Aqui está a visão financeira da sua empresa.</span></div>{demoMode&&<DemoNotice/>}<div className="top-controls"><select className="company-select" value={selectedCompanyId} onChange={e=>switchCompany(e.target.value)}>{session.companies.map((c:any)=><option key={c.id} value={c.id}>{c.name}</option>)}</select><div className="period-control"><CalendarDays/><select value={period} onChange={e=>setPeriod(e.target.value)}>{periods.map(p=><option key={p} value={p}>{monthName(p)}</option>)}</select></div><div className={'quality '+(num(status.quality)>=95?'good':num(status.quality)>=80?'warn':'bad')}><ShieldCheck/>Dados {num(status.quality)}%</div></div></header>{renderPage()}</main></div>
 }
 
 function DashboardPage({data,dre,dreComp,reconciliation,period,recentTx,status,onGo}:any){
@@ -197,7 +200,7 @@ function DashboardPage({data,dre,dreComp,reconciliation,period,recentTx,status,o
     <div className="kpi-grid executive">
       <Kpi icon={BarChart3} title="Receita Bruta" value={fmt(data.summary?.revenue)} sub="Receita por competência" tone="blue" onClick={()=>onGo('dre')}/>
       <Kpi icon={WalletCards} title="Lucro Líquido" value={fmt(data.summary?.result)} sub="Resultado do período" tone="orange" onClick={()=>onGo('dre')}/>
-      <Kpi icon={Landmark} title="Caixa Disponível" value={fmt(data.summary?.balance)} sub="Movimento líquido" tone="green"/>
+      <CashAvailabilityCard onClick={()=>onGo('fluxo_caixa')}/>
       <Kpi icon={ListChecks} title="Pendências" value={String(data.summary?.pending||0)} sub="Itens para revisar" tone="purple" onClick={()=>onGo('lancamentos')}/>
     </div>
     <div className="dashboard-grid premium-grid">
