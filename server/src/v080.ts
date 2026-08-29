@@ -5,6 +5,7 @@ import {pool,getCompany,findAccountByName} from './db.js'
 import {parsePdf} from './parsers/pdf.js'
 import {parseTabular} from './parsers/tabular.js'
 import {classify} from './services/classify.js'
+import {adaptUnknownPdf} from './services/ai.js'
 
 const n=(v:any)=>Number(v||0)
 const pad=(v:any)=>String(v).padStart(2,'0')
@@ -57,6 +58,7 @@ function closingInfo(parsed:any,name:string){const validation={...(parsed?.valid
 async function importOne(cid:string,type:string,f:any,company:any){const fileHash=hash(f.buffer),dup=await pool!.query(`SELECT id FROM source_files WHERE company_id=$1 AND hash=$2 LIMIT 1`,[cid,fileHash]);if(dup.rowCount)return{name:f.originalname,status:'DUPLICATE',detail:'Arquivo já importado.'};const ext=path.extname(f.originalname).toLowerCase();if(['PAYABLES','RECEIVABLES'].includes(type)&&!['.xlsx','.xls','.csv'].includes(ext))throw new Error(`${TYPES[type]} usa o modelo Excel/CSV da Clara.`)
   let parsed:any=null,rows:any[]=[],validation:any={status:'OK'},records=0,periodStart:any=null,periodEnd:any=null
   if(type==='SALES_REPORT'&&['.xlsx','.xls','.csv'].includes(ext))rows=parseSales(f.buffer);else if(type==='PAYABLES'||type==='RECEIVABLES')rows=parseModel(f.buffer,type as any);else parsed=ext==='.pdf'?await parsePdf(f.buffer):parseTabular(f.buffer)
+  if(parsed&&!parsed.transactions?.length&&parsed.textForAi){try{const adapted=await adaptUnknownPdf({text:parsed.textForAi,company});if(adapted?.transactions?.length)parsed.transactions=adapted.transactions.map((x:any)=>({occurredAt:x.date,competenceAt:x.date,description:x.description,amount:x.amount,direction:x.direction,paymentMethod:x.payment_method,financialStatus:'PAID',raw:{source:'ai_pdf_adapter',documentType:adapted.document_type,confidence:adapted.confidence}}))}catch(e){console.error('v080 pdf adapter',e)}}
   if(parsed){validation=type==='BANK_STATEMENT'?closingInfo(parsed,f.originalname):parsed.validation||{status:'OK'};periodStart=parsed.metadata?.periodStart;periodEnd=parsed.metadata?.periodEnd}
   const sf=await pool!.query(`INSERT INTO source_files(company_id,name,hash,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end,content,mime_type,import_scope) VALUES($1,$2,$3,$4,'IMPORTED','Processando...',0,$5,$6,$7::jsonb,$8::date,$9::date,$10,$11,'GENERAL') RETURNING id`,[cid,f.originalname,fileHash,type,parsed?.confidence||90,validation.status||'OK',JSON.stringify(validation),periodStart||null,periodEnd||null,f.buffer,f.mimetype]);const sourceFileId=sf.rows[0].id
   try{
