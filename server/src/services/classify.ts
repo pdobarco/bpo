@@ -26,9 +26,9 @@ export async function classify(transaction,companyId,company=null){
     if(exact.rowCount)return resultWithAccount(companyId,{...exact.rows[0],status:'CONFIRMED'},party,document)
 
     if(isIncomingTransfer(description)||isOutgoingTransfer(description)){
-      const accounts=await getCompanyAccounts(companyId),ownDocument=String(company?.document||'').replace(/\D/g,''),descDigits=String(description).replace(/\D/g,''),ownName=normalize(company?.name||'')
-      const ownByDocument=ownDocument.length>=8&&descDigits.includes(ownDocument),ownByName=ownName.length>=6&&txt.includes(ownName),ownByAccount=accounts.some(a=>accountMatchesDescription(a,description))
-      if(ownByDocument||ownByName||ownByAccount)return resultWithAccount(companyId,{category:'Transferência entre contas próprias',confidence:99,scope:'COMPANY',source:'HEURISTIC',status:'AUTO'},party,document)
+      const accounts=await getCompanyAccounts(companyId),ownDocument=String(company?.document||'').replace(/\D/g,''),descDigits=String(description).replace(/\D/g,''),ownName=normalize(company?.name||''),holderName=normalize(company?.bankHolderName||'')
+      const partyName=normalize(party||''),ownByDocument=ownDocument.length>=8&&descDigits.includes(ownDocument),ownByName=ownName.length>=6&&txt.includes(ownName),ownByAccount=accounts.some(a=>accountMatchesDescription(a,description)),ownByHolder=holderName.length>=4&&partyName.length>=4&&(holderName.includes(partyName)||partyName.includes(holderName))
+      if(ownByDocument||ownByName||ownByAccount||ownByHolder)return resultWithAccount(companyId,{category:'Transferência entre contas próprias',confidence:99,scope:'COMPANY',source:'HEURISTIC',status:'AUTO'},party,document)
     }
 
     const global=await pool.query(`SELECT category,normalized_party,entity_document,confidence,confirmation_count,scope,source FROM classification_rules
@@ -37,6 +37,6 @@ export async function classify(transaction,companyId,company=null){
     if(global.rowCount){const g=global.rows[0],status=Number(g.confidence)>=95||Number(g.confirmation_count)>=3?'AUTO':'SUGGESTED';return resultWithAccount(companyId,{...g,status},party,document)}
   }
 
-  if(direction==='ENTRADA'&&isIncomingTransfer(description))return resultWithAccount(companyId,{category:'Receita de vendas',confidence:78,scope:null,source:'HEURISTIC',status:'SUGGESTED'},party,document)
+  if(direction==='ENTRADA'&&isIncomingTransfer(description))return resultWithAccount(companyId,{category:'Receita de vendas',confidence:company?.bankHolderName?97:78,scope:null,source:'HEURISTIC',status:company?.bankHolderName?'AUTO':'SUGGESTED'},party,document)
   return {category:'A classificar',normalized_party:party,counterparty_document:document,account_id:null,confidence:0,scope:null,source:null,status:'PENDING'}
 }
