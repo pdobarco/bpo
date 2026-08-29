@@ -15,6 +15,7 @@ import { parseTabular } from './parsers/tabular.js'
 import { parseSupplierBase } from './parsers/suppliers.js'
 import { classify } from './services/classify.js'
 import { suggestNegativeParties, adaptUnknownPdf, compareMarketProducts } from './services/ai.js'
+import { registerV070Routes } from './v070.js'
 import { isLikelyBusinessName,normalize } from './services/entity.js'
 import * as XLSX from 'xlsx'
 
@@ -73,7 +74,7 @@ async function collectUploads(req:any){
   req.uploadedFiles=files
 }
 
-function isPublicApi(url:string){return url==='/api/health'||url==='/api/auth/status'||url==='/api/auth/login'||url==='/api/auth/register'}
+function isPublicApi(url:string){return url==='/api/health'||url==='/api/auth/status'||url==='/api/auth/login'||url==='/api/auth/register'||url==='/api/demo/session'}
 function registerRoute(method:any,url:string,...handlers:any[]){
   server.route({method,url,handler:async(req:any,reply:any)=>{
     const schema=bodySchemas[`${method} ${url}`]
@@ -103,6 +104,7 @@ const app={
   delete:(url,...handlers)=>registerRoute('DELETE',url,...handlers)
 }
 const upload={array:(..._args:any[])=>collectUploads}
+registerV070Routes(app)
 
 const demo={company:{id:'demo',name:'Encantê Natural',sector:'Comércio',activity:'Produtos naturais'},summary:{balance:5731.62,inflow:11096.69,outflow:13113.60,pending:2,revenue:10601,result:-6999,quality:91},months:[2379,6490,10562,19005,14445,19278,10601,0],files:[],tx:[]}
 const n=(v:any)=>Number(v||0),cleanDocument=(v:any)=>String(v||'').replace(/\D/g,'')
@@ -451,7 +453,7 @@ app.get('/api/source-files',async(req,res)=>{if(!pool)return res.json({files:[]}
 app.get('/api/source-files/:id/review',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,f=await pool.query(`SELECT id,name,kind,status,status_detail,record_count,confidence,validation_status,validation,period_start,period_end,created_at,processed_at,(content IS NOT NULL) can_reprocess FROM source_files WHERE id=$1 AND company_id=$2 LIMIT 1`,[req.params.id,cid]);if(!f.rowCount)return res.status(404).json({message:'Arquivo não encontrado.'});const tx=await pool.query(`SELECT id,occurred_at,competence_at,due_at,description,custom_title,normalized_party,amount,direction,category,classification_status,source_page FROM transactions WHERE company_id=$1 AND source_file_id=$2 ORDER BY COALESCE(competence_at,occurred_at::date),id LIMIT 500`,[cid,req.params.id]);res.json({file:f.rows[0],transactions:tx.rows})})
 app.post('/api/source-files/:id/confirm',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,r=await pool.query(`UPDATE source_files SET status='IMPORTED',validation_status='ACCEPTED_OVERRIDE',status_detail='Conferido e aceito manualmente',processed_at=now() WHERE id=$1 AND company_id=$2 RETURNING id`,[req.params.id,cid]);if(!r.rowCount)return res.status(404).json({message:'Arquivo não encontrado.'});await auditSafe(cid,'SOURCE_FILE_ACCEPTED','source_file',req.params.id,{});res.json({ok:true})})
 app.post('/api/source-files/:id/ignore-transaction',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,id=String(req.body?.transactionId||'');const r=await pool.query(`UPDATE transactions SET status='IGNORED',dre_impact=false,cash_impact=false,classification_status='CONFIRMED',classification_source='FILE_REVIEW_IGNORE' WHERE id=$1 AND company_id=$2 AND source_file_id=$3 RETURNING id`,[id,cid,req.params.id]);if(!r.rowCount)return res.status(404).json({message:'Linha não encontrada.'});await auditSafe(cid,'SOURCE_FILE_LINE_IGNORED','transaction',id,{sourceFileId:req.params.id});res.json({ok:true})})
-app.delete('/api/source-files/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`DELETE FROM payables WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);await pool.query(`DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);const r=await pool.query(`DELETE FROM source_files WHERE id=$1 AND company_id=$2 RETURNING id`,[req.params.id,cid]);if(!r.rowCount)return res.status(404).json({message:'Arquivo não encontrado.'});await auditSafe(cid,'SOURCE_FILE_DISCARDED','source_file',req.params.id,{});res.json({ok:true})})
+app.delete('/api/source-files/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`DELETE FROM receivables WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);await pool.query(`DELETE FROM payables WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);await pool.query(`DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);const r=await pool.query(`DELETE FROM source_files WHERE id=$1 AND company_id=$2 RETURNING id`,[req.params.id,cid]);if(!r.rowCount)return res.status(404).json({message:'Arquivo não encontrado.'});await auditSafe(cid,'SOURCE_FILE_DISCARDED','source_file',req.params.id,{});res.json({ok:true})})
 app.post('/api/source-files/:id/reprocess',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,f=await pool.query(`SELECT id,name,content,mime_type FROM source_files WHERE id=$1 AND company_id=$2 LIMIT 1`,[req.params.id,cid]);if(!f.rowCount)return res.status(404).json({message:'Arquivo não encontrado.'});if(!f.rows[0].content)return res.status(409).json({message:'Este arquivo é anterior à versão que armazena o conteúdo para reprocessamento. Envie-o novamente.'});try{const ext=path.extname(f.rows[0].name).toLowerCase(),parsed=ext==='.pdf'?await parsePdf(f.rows[0].content):parseTabular(f.rows[0].content),company=await getCompany(cid),dates=(parsed.transactions||[]).map((t:any)=>toDateOnly(t.competenceAt||t.occurredAt)).filter(Boolean).sort(),periodStart=parsed.metadata?.periodStart||dates[0]||null,periodEnd=parsed.metadata?.periodEnd||dates.at(-1)||null,status=!parsed.transactions?.length||parsed.validation?.status==='MISMATCH'?'REVIEW':'IMPORTED',detail=!parsed.transactions?.length?'Nenhum lançamento foi extraído':parsed.validation?.status==='MISMATCH'?'Reprocessado, mas os totais ainda apresentam divergência':'Reprocessado com sucesso';await pool.query(`DELETE FROM transactions WHERE company_id=$1 AND source_file_id=$2`,[cid,req.params.id]);const count=await persistParsedTransactions(cid,req.params.id,parsed,company);await pool.query(`UPDATE source_files SET kind=$3,status=$4,status_detail=$5,record_count=$6,confidence=$7,validation_status=$8,validation=$9::jsonb,period_start=$10,period_end=$11,processed_at=now() WHERE id=$1 AND company_id=$2`,[req.params.id,cid,parsed.kind,status,detail,count,parsed.confidence,parsed.validation?.status||'NOT_AVAILABLE',JSON.stringify(parsed.validation||{}),periodStart,periodEnd]);await applyAccountingPolicy(cid);await auditSafe(cid,'SOURCE_FILE_REPROCESSED','source_file',req.params.id,{count,status});res.json({ok:true,count,status,detail})}catch(e:any){res.status(400).json({message:'Não foi possível reprocessar o arquivo.',detail:e?.message||String(e)})}})
 app.get('/api/period-status',async(req,res)=>{if(!pool)return res.json({quality:0,ready:false,steps:{}});res.json(await periodStatus(req.companyId,rangeFromQuery(req.query)))})
 
@@ -663,7 +665,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.6.1',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.6.1',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.6.1',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.7.0',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.7.0',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.7.0',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -674,6 +676,6 @@ async function start(){
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Clara BPO v0.6.1 on :${PORT}`)
+  console.log(`Clara BPO v0.7.0 on :${PORT}`)
 }
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})

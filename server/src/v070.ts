@@ -69,7 +69,7 @@ async function insertClassifiedTransactions(cid:string,sourceFileId:string,parse
     if(docType==='CARD_MACHINE_STATEMENT'){role='SALES_EVENT';cash=false;dre=true;if(direction==='ENTRADA'&&(category==='A classificar'||!category))category='Receita de vendas'}
     if(docType==='CREDIT_CARD_INVOICE'){role='CARD_PURCHASE';cash=false;dre=true;financial='OPEN'}
     if(category==='Transferência entre contas próprias'){role='TRANSFER';dre=false;cash=true}
-    const account=await ensureAccount(cid,category,direction)
+    const account=await ensureAccount(cid,category,direction as 'ENTRADA'|'SAIDA')
     await pool!.query(`INSERT INTO transactions(company_id,source_file_id,occurred_at,competence_at,due_at,paid_at,description,normalized_party,counterparty_document,direction,amount,gross_amount,fee_amount,net_amount,category,account_id,classification_confidence,classification_status,classification_source,payment_method,financial_status,dre_impact,cash_impact,accounting_role,external_id,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26::jsonb)`,[cid,sourceFileId,t.occurredAt||new Date(),t.competenceAt||t.occurredAt||new Date(),t.dueAt||null,t.paidAt||null,t.description||'Lançamento importado',c.normalized_party||null,c.counterparty_document||null,direction,amount,t.grossAmount??null,t.feeAmount??null,t.netAmount??null,category,account?.id||c.account_id||null,c.confidence,c.status,c.source,t.paymentMethod||null,financial,dre,cash,role,t.externalId||null,JSON.stringify({...t.raw,user_document_type:docType})])
     count++
   }
