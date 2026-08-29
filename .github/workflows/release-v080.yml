@@ -29,7 +29,13 @@ jobs:
           node-version: 24
 
       - name: Integrate v0.8.0
-        run: node scripts/integrate-v080.mjs
+        shell: bash
+        run: |
+          if grep -q "APP_VERSION='0.8.0'" client/src/main.tsx && grep -q "registerV080Routes" server/src/index.ts; then
+            echo "Clara v0.8.0 already integrated."
+          else
+            node scripts/integrate-v080.mjs
+          fi
 
       - name: Harden v0.8.0 integration
         shell: bash
