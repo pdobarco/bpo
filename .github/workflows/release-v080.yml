@@ -37,6 +37,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Typecheck diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          nl -ba server/src/v080.ts | sed -n '82,108p'
+          echo '--- TypeScript direct parse ---'
+          npm --prefix server exec -- tsc -p tsconfig.json --noEmit --pretty false || true
+
       - name: Production build
         run: npm run build
 
