@@ -18,6 +18,7 @@ import { suggestNegativeParties, adaptUnknownPdf, compareMarketProducts } from '
 import { registerV070Routes } from './v070.js'
 import { registerV080Routes,initV080Schema } from './v080.js'
 import { registerV080ExtraRoutes } from './v080extra.js'
+import { registerV082Routes } from './v082.js'
 import { isLikelyBusinessName,normalize } from './services/entity.js'
 import * as XLSX from 'xlsx'
 
@@ -109,6 +110,7 @@ const upload={array:(..._args:any[])=>collectUploads}
 registerV070Routes(app)
 registerV080Routes(app)
 registerV080ExtraRoutes(app)
+registerV082Routes(app)
 
 const demo={company:{id:'demo',name:'Encantê Natural',sector:'Comércio',activity:'Produtos naturais'},summary:{balance:5731.62,inflow:11096.69,outflow:13113.60,pending:2,revenue:10601,result:-6999,quality:91},months:[2379,6490,10562,19005,14445,19278,10601,0],files:[],tx:[]}
 const n=(v:any)=>Number(v||0),cleanDocument=(v:any)=>String(v||'').replace(/\D/g,'')

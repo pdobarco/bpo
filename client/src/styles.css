@@ -113,3 +113,23 @@
 .payable-period{display:flex;gap:9px;margin-bottom:13px}.payable-period label{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid #e0e7ef;border-radius:10px;padding:6px 9px}.payable-period label span{font-size:9px;font-weight:800;color:#6f8098}.payable-period input{border:0;box-shadow:none;padding:4px}.payables-table{overflow:auto}.payables-table .tr{display:grid;grid-template-columns:100px minmax(235px,1.4fr) 115px minmax(185px,1fr) 90px 105px 70px;gap:9px;align-items:center;padding:10px 11px;border-top:1px solid #edf1f5;min-width:1050px}.payables-table .tr.head{border-top:0;background:#f8fafc}.payables-table .tr>div b,.payables-table .tr>div small{display:block}.payables-table .tr>div small{font-size:8.5px;color:#8794a7;margin-top:2px}.payables-table select{min-width:0;font-size:9px;padding:7px}.cashflow-hero{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:13px}.cashflow-hero h2{font-size:29px;margin:5px 0 3px;color:#12366f}.cashflow-hero p{font-size:10px;color:#7b899e;margin:0}.future-bars{display:grid;gap:11px}.future-bars>div>div{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}.future-bars b,.future-bars span{font-size:10px}.future-bars span{color:#5d7191}.future-bars i{display:block;height:7px;border-radius:99px;background:linear-gradient(90deg,#0b5cff,#20a7e8);min-width:2px}.payable-import-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.import-options{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 16px}.import-options>div{border:1px solid #e2e9f2;background:#f9fbfe;border-radius:11px;padding:12px}.import-options svg{width:20px;color:#0b5cff}.import-options b,.import-options span{display:block}.import-options b{font-size:10px;margin:7px 0 3px}.import-options span{font-size:9px;line-height:1.45;color:#7c8ba1}
 @media(max-width:1000px){.payable-import-grid{grid-template-columns:1fr}.review-metrics,.validation-grid{grid-template-columns:1fr 1fr}.tx-table-select .tr{min-width:1100px}.tx-table-select{overflow:auto}}
 @media(max-width:700px){.review-metrics,.validation-grid{grid-template-columns:1fr}.bulk-toolbar,.cashflow-hero{align-items:flex-start;flex-direction:column}.import-options{grid-template-columns:1fr}.modal-backdrop{padding:8px}.modal{max-height:96vh}.review-line{grid-template-columns:1fr 90px}.review-line button{grid-column:1/-1}.payable-period{flex-wrap:wrap}}
+
+/* v0.8.2 executive typography */
+html,body,#root{font-size:14px}
+body{font-weight:400;letter-spacing:-.005em}
+b,strong{font-weight:600}
+.page-title h1{font-size:clamp(1.45rem,2vw,1.8rem)!important;line-height:1.16!important;font-weight:600!important;letter-spacing:-.025em!important}
+.page-title p{font-size:.9rem!important;line-height:1.5!important;font-weight:400!important}
+.eyebrow{font-size:.68rem!important;font-weight:600!important;letter-spacing:.08em!important}
+.card-head b{font-size:.93rem!important;font-weight:600!important;letter-spacing:-.01em!important}
+.card-head span{font-size:.76rem!important;font-weight:400!important}
+.kpi-card>div>span{font-size:.76rem!important;font-weight:500!important}
+.kpi-card strong{font-size:1.38rem!important;line-height:1.15!important;font-weight:600!important;letter-spacing:-.025em!important}
+.kpi-card small{font-size:.72rem!important;line-height:1.35!important;font-weight:400!important}
+.tr,.tx-table{font-size:.82rem!important}
+.tr.head,.tr.head b,.tx-table .head{font-size:.72rem!important;font-weight:600!important;letter-spacing:.015em!important}
+button,input,select,textarea{font-size:.82rem}
+button{font-weight:500!important}
+.pill{font-size:.69rem!important;font-weight:600!important}
+.sidebar nav button,.nav-item{font-size:.82rem!important;font-weight:500!important}
+/* end v0.8.2 executive typography */

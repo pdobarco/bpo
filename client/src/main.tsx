@@ -5,7 +5,8 @@ import{Home,FolderOpen,ListChecks,RefreshCcw,BarChart3,Settings,Users,X,Calendar
 import{apiFetch,apiJson,COMPANY_KEY,fetchTransactions,TOKEN_KEY}from'./api'
 import{queryClient}from'./queryClient'
 import{FilesPageV070,PresentationPage,DemoSessionGate,DemoNotice}from'./v070'
-import{CashFlowPageV080,PayablesPageV080,ReceivablesPageV080,ReconciliationPageV080}from'./v080'
+import{ReconciliationPageV080}from'./v080'
+import{CashFlowPageV082,PayablesPageV082,ReceivablesPageV082}from'./v082'
 import{CashAvailabilityCard}from'./v080dash'
 import'./styles.css'
 
@@ -16,7 +17,7 @@ const BRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'})
 const fmt=(v:any)=>BRL.format(Number(v||0))
 const num=(v:any)=>Number(v||0)
 const titleCase=(s:any)=>String(s||'').toLowerCase().replace(/\b\p{L}/gu,c=>c.toUpperCase())
-const APP_VERSION='0.8.1'
+const APP_VERSION='0.8.2'
 const currentPeriod=new Date().toISOString().slice(0,7)
 const monthName=(p:string)=>{const[y,m]=p.split('-');return new Date(Number(y),Number(m)-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}
 const dateOnly=(v:any)=>{if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:''}
@@ -178,9 +179,9 @@ function MainApp({session,onLogout,onSessionChange,demoMode=false}:any){
     if(page==='arquivos')return <FilesPageV070 sourceHealth={sourceHealth} allSourceFiles={allSourceFiles} canWrite={canWrite} folderRef={folderRef} fileRef={fileRef} refresh={refresh} onGoTransactions={()=>setPage('lancamentos')}/>
     if(page==='lancamentos')return <TransactionsPage reviewMode={reviewMode} setReviewMode={setReviewMode} groups={groups} categories={categories} confirmGroup={confirmGroup} askLuna={askLuna} busy={busy} query={transactionsQuery} transactions={transactions} filters={filters} setFilters={setFilters} sort={sort} toggleSort={toggleSort} expanded={expanded} setExpanded={setExpanded} editingTx={editingTx} startTxEdit={startTxEdit} setEditingTx={setEditingTx} txEdit={txEdit} setTxEdit={setTxEdit} saveTxEdit={saveTxEdit} chartAccounts={chartAccounts} canWrite={canWrite} confirmTransactions={confirmTransactions}/>
     if(page==='conciliacao')return <ReconciliationPageV080 period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
-    if(page==='contas_pagar')return <PayablesPageV080 period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
-    if(page==='contas_receber')return <ReceivablesPageV080 period={period} canWrite={canWrite}/>
-    if(page==='fluxo_caixa')return <CashFlowPageV080 period={period}/>
+    if(page==='contas_pagar')return <PayablesPageV082 period={period} chartAccounts={chartAccounts} canWrite={canWrite}/>
+    if(page==='contas_receber')return <ReceivablesPageV082 period={period} canWrite={canWrite}/>
+    if(page==='fluxo_caixa')return <CashFlowPageV082 period={period}/>
     if(page==='dre')return <DrePage dre={dre} dreComp={dreComp} dreMode={dreMode} setDreMode={setDreMode} period={period} status={status} closePeriod={closePeriod} reopenPeriod={reopenPeriod} canAdmin={canAdminCompany}/>
     if(page==='precificacao')return <PricingPage canWrite={canWrite}/>
     if(page==='apresentacao')return <PresentationPage period={period}/>
