@@ -11,6 +11,7 @@ export type AuthUser = {
 
 const MASTER_EMAIL = (process.env.MASTER_EMAIL || 'thomas.muller@bateriasmoura.com').trim().toLowerCase()
 const SESSION_DAYS = Math.max(1, Math.min(90, Number(process.env.SESSION_DAYS || 30)))
+const DEMO_EMAIL = 'demo@clara.local'
 
 function b64(input: Buffer) { return input.toString('base64url') }
 function sha256(value: string) { return crypto.createHash('sha256').update(value).digest('hex') }
@@ -94,6 +95,13 @@ export async function authenticateRequest(req: any): Promise<AuthUser | null> {
 
 export async function userCompanies(user: AuthUser) {
   if (!pool || !user) return []
+  const isDemoUser=String(user.email||'').toLowerCase()===DEMO_EMAIL
+  if(isDemoUser){
+    const r=await pool.query(`SELECT c.id,c.name,c.document,c.sector,c.activity,c.active,uc.role
+      FROM user_companies uc JOIN companies c ON c.id=uc.company_id
+      WHERE uc.user_id=$1 AND c.active=true AND COALESCE(c.is_demo,false)=true ORDER BY c.name`,[user.id])
+    return r.rows
+  }
   if (user.role === 'MASTER') {
     const r = await pool.query(`SELECT c.id,c.name,c.document,c.sector,c.activity,c.active,COALESCE(uc.role,'MASTER') role
       FROM companies c LEFT JOIN user_companies uc ON uc.company_id=c.id AND uc.user_id=$1
