@@ -31,6 +31,18 @@ jobs:
       - name: Integrate v0.8.0
         run: node scripts/integrate-v080.mjs
 
+      - name: Harden v0.8.0 integration
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs')
+          const p='server/src/v080.ts'
+          let s=fs.readFileSync(p,'utf8')
+          s=s.replace("  return true}\n}\n\nexport function registerV080Routes", "  return true\n}\n\nexport function registerV080Routes")
+          s=s.replace("const v=f.validation||{},key=String(v.accountKey||f.name);if(!latest.has(key))latest.set(key,{...f,closing:n(v.closing??v.expected?.closing),accountKey:key})}let balances=[...latest.values()].filter(x=>Number.isFinite(x.closing))", "const v=f.validation||{},key=String(v.accountKey||f.name),rawClosing=v.closing??v.expected?.closing,closing=rawClosing===null||rawClosing===undefined?null:Number(rawClosing);if(!latest.has(key))latest.set(key,{...f,closing,accountKey:key})}let balances=[...latest.values()].filter(x=>x.closing!==null&&Number.isFinite(x.closing))")
+          fs.writeFileSync(p,s)
+          NODE
+
       - name: Install dependencies
         run: npm run install:all
 
@@ -41,9 +53,12 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          nl -ba server/src/v080.ts | sed -n '82,108p'
-          echo '--- TypeScript direct parse ---'
-          npm --prefix server exec -- tsc -p tsconfig.json --noEmit --pretty false || true
+          echo '--- v080 around reported errors ---'
+          nl -ba server/src/v080.ts | sed -n '80,125p'
+          echo '--- server typecheck ---'
+          cd server && npx tsc -p tsconfig.json --noEmit --pretty false || true
+          echo '--- client typecheck ---'
+          cd ../client && npx tsc --noEmit --pretty false || true
 
       - name: Production build
         run: npm run build
