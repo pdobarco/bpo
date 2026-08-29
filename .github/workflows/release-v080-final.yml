@@ -1,0 +1,55 @@
+name: Clara v0.8.0 Final Validation
+
+on:
+  push:
+    branches:
+      - release/0.8.0
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clara-v080-final
+  cancel-in-progress: true
+
+jobs:
+  validate-final:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout v0.8.0
+        uses: actions/checkout@v4
+        with:
+          ref: release/0.8.0
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Apply final runtime hardening
+        run: node scripts/harden-v080-runtime.mjs
+
+      - name: Install dependencies
+        run: npm run install:all
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit validated runtime hardening
+        shell: bash
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "Clara Release Bot"
+            git config user.email "clara-release@users.noreply.github.com"
+            git add server/src/v070.ts server/src/v080.ts
+            git add client/package-lock.json server/package-lock.json 2>/dev/null || true
+            git commit -m "fix: finalize Clara v0.8.0 runtime semantics"
+            git push origin HEAD:release/0.8.0
+          else
+            echo "Final runtime hardening already committed."
+          fi
