@@ -1,0 +1,56 @@
+name: Clara v0.8.2 Release Validation
+
+on:
+  push:
+    branches:
+      - release/0.8.2
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: clara-v082-release
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: release/0.8.2
+          fetch-depth: 0
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Apply v0.8.2 patch
+        run: node scripts/patch-v082.mjs
+
+      - name: Install dependencies
+        run: npm run install:all
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit validated patch
+        shell: bash
+        run: |
+          if ! git diff --quiet; then
+            git config user.name "Clara Release Bot"
+            git config user.email "clara-release@users.noreply.github.com"
+            git add package.json client/package.json server/package.json client/package-lock.json server/package-lock.json
+            git add client/src/main.tsx client/src/v080.tsx client/src/styles.css client/src/v080.css
+            git add server/src/index.ts server/src/v080extra.ts
+            git commit -m "feat: executive typography and custom finance periods in v0.8.2"
+            git push origin HEAD:release/0.8.2
+          else
+            echo "Patch already applied."
+          fi
