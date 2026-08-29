@@ -245,6 +245,7 @@ export async function initDb() {
 
   const c = await pool.query('SELECT id FROM companies LIMIT 1')
   if (!c.rowCount) await pool.query(`INSERT INTO companies(name,document,sector,activity) VALUES ('Empresa Demonstração','','Comércio','Venda de produtos e serviços')`)
+  await pool.query(`UPDATE expected_sources SET active=false WHERE kind IN ('NUBANK_STATEMENT','NUBANK_CARD','PAGBANK_STATEMENT','PAGBANK_SALES','TABULAR')`)
   const companyRows = await pool.query('SELECT id FROM companies')
   for (const row of companyRows.rows) await ensureDefaultChart(row.id)
   await seedRules()
