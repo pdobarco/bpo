@@ -43,12 +43,12 @@ jobs:
       - name: Commit validated integration
         shell: bash
         run: |
-          if ! git diff --quiet -- client/src/main.tsx server/src/index.ts; then
+          if ! git diff --quiet -- client/src/main.tsx server/src/index.ts server/src/v070.ts; then
             git config user.name "Clara Release Bot"
             git config user.email "clara-release@users.noreply.github.com"
-            git add client/src/main.tsx server/src/index.ts
+            git add client/src/main.tsx server/src/index.ts server/src/v070.ts
             git commit -m "feat: integrate Clara v0.7.0"
             git push origin HEAD:release/0.7.0
           else
-            echo "Entry points already integrated."
+            echo "Release integration already applied."
           fi
