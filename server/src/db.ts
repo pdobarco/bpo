@@ -158,6 +158,16 @@ export async function initDb() {
     paid_at TIMESTAMPTZ, payment_method TEXT, invoice_ref TEXT, fingerprint TEXT NOT NULL, raw JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,fingerprint))`)
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS receivables(
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    source_file_id UUID REFERENCES source_files(id) ON DELETE SET NULL, transaction_id UUID REFERENCES transactions(id) ON DELETE SET NULL,
+    origin_type TEXT NOT NULL DEFAULT 'MANUAL', customer TEXT, customer_document TEXT, description TEXT NOT NULL,
+    issue_date DATE, due_date DATE NOT NULL, amount NUMERIC(14,2) NOT NULL, category TEXT,
+    account_id UUID REFERENCES chart_accounts(id) ON DELETE SET NULL, classification_status TEXT DEFAULT 'PENDING',
+    classification_source TEXT, receipt_status TEXT DEFAULT 'OPEN', received_amount NUMERIC(14,2) DEFAULT 0,
+    received_at TIMESTAMPTZ, payment_method TEXT, invoice_ref TEXT, fingerprint TEXT NOT NULL, raw JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE(company_id,fingerprint))`)
+
   await pool.query(`CREATE TABLE IF NOT EXISTS reconciliation_ignores(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
     transaction_id UUID REFERENCES transactions(id) ON DELETE CASCADE, reason TEXT, created_at TIMESTAMPTZ DEFAULT now(),
@@ -187,7 +197,6 @@ export async function initDb() {
     action TEXT NOT NULL, entity_type TEXT, entity_id TEXT, details JSONB DEFAULT '{}'::jsonb,
     actor TEXT DEFAULT 'MASTER', created_at TIMESTAMPTZ DEFAULT now())`)
 
-
   await pool.query(`CREATE TABLE IF NOT EXISTS users(
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT NOT NULL, name TEXT NOT NULL,
     password_hash TEXT, role TEXT NOT NULL DEFAULT 'OPERATOR', status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -200,9 +209,9 @@ export async function initDb() {
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT NOT NULL UNIQUE, expires_at TIMESTAMPTZ NOT NULL, last_seen_at TIMESTAMPTZ DEFAULT now(),
     created_at TIMESTAMPTZ DEFAULT now())`)
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id,expires_at)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_companies_company ON user_companies(company_id,user_id)`)
-
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_company_party ON transactions(company_id,normalized_party,direction)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_counterparty_document ON transactions(company_id,counterparty_document)`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_tx_account ON transactions(company_id,account_id)`)
@@ -214,13 +223,13 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_rules_global_document ON classification_rules(entity_document,direction) WHERE scope='GLOBAL'`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_rules_global_party ON classification_rules(normalized_party,direction) WHERE scope='GLOBAL'`)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_chart_company ON chart_accounts(company_id,active,dre_order)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_payables_due ON payables(company_id,due_date,payment_status)`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_receivables_due ON receivables(company_id,due_date,receipt_status)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
-  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.6.1',now())
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.7.0',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
-  // O banco do Claria nasceu antes do Drizzle. O bootstrap acima é intencionalmente idempotente para adotar bancos existentes;
-  // daqui em diante, migrations versionadas ficam em server/drizzle e são executadas pelo migrador oficial do Drizzle.
   if (db) await migrate(db, { migrationsFolder })
 
   await pool.query(`UPDATE transactions SET category='Transferência entre contas próprias' WHERE category='Transferência entre contas'`)
@@ -228,9 +237,7 @@ export async function initDb() {
   await pool.query(`UPDATE transactions SET category='Liquidação de cartão de crédito' WHERE category='Cartão de crédito' AND description ILIKE 'Pagamento de fatura%'`)
   await pool.query(`UPDATE chart_accounts SET name='Liquidação de cartão de crédito',updated_at=now() WHERE code='9.03' AND name='Cartão de crédito'`)
   await pool.query(`UPDATE classification_rules SET category='Liquidação de cartão de crédito',updated_at=now() WHERE category='Cartão de crédito' AND pattern ILIKE '%PAGAMENTO DE FATURA%'`)
-  // v0.2.1: competência nunca fica sem referência. Para legados, a data do evento é o fallback oficial.
   await pool.query(`UPDATE transactions SET competence_at=occurred_at::date WHERE competence_at IS NULL AND occurred_at IS NOT NULL`)
-  // Padroniza apenas rótulos conhecidos; não inventa PIX quando o extrato só informa transferência.
   await pool.query(`UPDATE transactions SET payment_method='Cartão de crédito' WHERE upper(COALESCE(payment_method,'')) IN ('CREDITO','CRÉDITO','CARTAO DE CREDITO','CARTÃO DE CRÉDITO')`)
   await pool.query(`UPDATE transactions SET payment_method='Cartão de débito' WHERE upper(COALESCE(payment_method,'')) IN ('DEBITO','DÉBITO','CARTAO DE DEBITO','CARTÃO DE DÉBITO')`)
   await pool.query(`UPDATE transactions SET payment_method='PIX' WHERE upper(COALESCE(payment_method,''))='PIX'`)
@@ -238,8 +245,8 @@ export async function initDb() {
 
   const c = await pool.query('SELECT id FROM companies LIMIT 1')
   if (!c.rowCount) await pool.query(`INSERT INTO companies(name,document,sector,activity) VALUES ('Empresa Demonstração','','Comércio','Venda de produtos e serviços')`)
-  const companies = await pool.query('SELECT id FROM companies')
-  for (const row of companies.rows) await ensureDefaultChart(row.id)
+  const companyRows = await pool.query('SELECT id FROM companies')
+  for (const row of companyRows.rows) await ensureDefaultChart(row.id)
   await seedRules()
   await migrateLegacyTransactions()
   return true
@@ -352,7 +359,6 @@ export async function findAccountByName(companyId, name) {
     is_group: chartAccounts.isGroup, active: chartAccounts.active
   }).from(chartAccounts).where(and(eq(chartAccounts.companyId, companyId), eq(chartAccounts.active, true), eq(chartAccounts.isGroup, false), eq(chartAccounts.name, name))).limit(1)
   if (rows[0]) return rows[0]
-  // Compatibilidade com classificações antigas que diferem apenas em caixa/espaços.
   const fallback = await pool.query(`SELECT id,code,name,parent_id,account_type,dre_section,dre_order,is_group,active FROM chart_accounts WHERE company_id=$1 AND active=true AND is_group=false AND upper(trim(name))=upper(trim($2)) LIMIT 1`, [companyId, name])
   return fallback.rows[0] || null
 }
