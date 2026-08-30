@@ -35,7 +35,21 @@ jobs:
         run: npm run install:all
 
       - name: Typecheck
-        run: npm run typecheck
+        id: typecheck
+        continue-on-error: true
+        shell: bash
+        run: npm run typecheck 2>&1 | tee TYPECHECK-v0.8.3.log
+
+      - name: Save diagnostics on failure
+        if: steps.typecheck.outcome == 'failure'
+        shell: bash
+        run: |
+          git config user.name "Clara Release Bot"
+          git config user.email "clara-release@users.noreply.github.com"
+          git add TYPECHECK-v0.8.3.log
+          git commit -m "chore: capture v0.8.3 typecheck diagnostics [skip ci]" || true
+          git push origin HEAD:release/0.8.3
+          exit 1
 
       - name: Production build
         run: npm run build
@@ -43,11 +57,12 @@ jobs:
       - name: Commit validated patch
         shell: bash
         run: |
+          rm -f TYPECHECK-v0.8.3.log
           if ! git diff --quiet; then
             git config user.name "Clara Release Bot"
             git config user.email "clara-release@users.noreply.github.com"
             git add package.json client/package.json server/package.json client/package-lock.json server/package-lock.json
-            git add client/src/main.tsx server/src/index.ts server/src/v080.ts
+            git add client/src/main.tsx server/src/index.ts server/src/v080.ts server/src/v083.ts
             git commit -m "feat: card invoice settlement and batch reconciliation in v0.8.3"
             git push origin HEAD:release/0.8.3
           else
