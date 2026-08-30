@@ -26,19 +26,20 @@ async function settleCardInvoice(cid:string,sourceFileId:string,dueMonth:string,
   if(Math.abs(Math.abs(n(c.amount))-total)>0.02)throw new Error(`O pagamento bancário não fecha com o total da fatura (${total.toFixed(2)}).`)
   if(cashMonth!==dueMonth)throw new Error('O pagamento bancário precisa pertencer ao mesmo mês de vencimento da fatura.')
   const acc=await pool!.query(`SELECT id FROM chart_accounts WHERE company_id=$1 AND active=true AND lower(name)=lower('Liquidação de cartão de crédito') LIMIT 1`,[cid])
-  await pool!.query('BEGIN')
+  const client=await pool!.connect()
   try{
-    await pool!.query(`INSERT INTO card_invoice_settlements(company_id,source_file_id,due_month,total_amount,cash_transaction_id,status,matched_at,updated_at)
+    await client.query('BEGIN')
+    await client.query(`INSERT INTO card_invoice_settlements(company_id,source_file_id,due_month,total_amount,cash_transaction_id,status,matched_at,updated_at)
       VALUES($1,$2,$3::date,$4,$5,'PAID',now(),now())
       ON CONFLICT(company_id,source_file_id,due_month) DO UPDATE SET total_amount=excluded.total_amount,cash_transaction_id=excluded.cash_transaction_id,status='PAID',matched_at=now(),updated_at=now()`,[cid,sourceFileId,dueMonth,total,cashId])
-    await pool!.query(`UPDATE payables SET payment_status='PAID',paid_amount=amount,paid_at=COALESCE(paid_at,$4::timestamptz),updated_at=now()
+    await client.query(`UPDATE payables SET payment_status='PAID',paid_amount=amount,paid_at=COALESCE(paid_at,$4::timestamptz),updated_at=now()
       WHERE company_id=$1 AND source_file_id=$2 AND origin_type='CREDIT_CARD_INSTALLMENT' AND date_trunc('month',due_date)::date=$3::date`,[cid,sourceFileId,dueMonth,cashDate])
-    for(const p of rows.rows){if(!p.transaction_id)continue;await pool!.query(`INSERT INTO reconciliation_links(company_id,left_transaction_id,right_transaction_id,match_type,confidence)
+    for(const p of rows.rows){if(!p.transaction_id)continue;await client.query(`INSERT INTO reconciliation_links(company_id,left_transaction_id,right_transaction_id,match_type,confidence)
       VALUES($1,$2,$3,$4,100) ON CONFLICT(company_id,left_transaction_id,right_transaction_id) DO UPDATE SET match_type=$4,confidence=100`,[cid,p.transaction_id,cashId,matchType])}
-    await pool!.query(`UPDATE transactions SET category='Liquidação de cartão de crédito',account_id=$3,classification_status='CONFIRMED',classification_source='CARD_INVOICE_V083',dre_impact=false,cash_impact=true,accounting_role='CASH_MOVEMENT',financial_status='PAID'
+    await client.query(`UPDATE transactions SET category='Liquidação de cartão de crédito',account_id=$3,classification_status='CONFIRMED',classification_source='CARD_INVOICE_V083',dre_impact=false,cash_impact=true,accounting_role='CASH_MOVEMENT',financial_status='PAID'
       WHERE id=$1 AND company_id=$2`,[cashId,cid,acc.rows[0]?.id||null])
-    await pool!.query('COMMIT')
-  }catch(e){await pool!.query('ROLLBACK');throw e}
+    await client.query('COMMIT')
+  }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   return{sourceFileId,dueMonth,total,itemCount:rows.rowCount,cashId,cashDate}
 }
 
@@ -58,7 +59,7 @@ async function getCardInvoiceGroups(cid:string,period:string,auto=true){const{mo
   let autoMatched=0
   if(auto){for(const g of groups.rows){if(n(g.paid_count)>=n(g.item_count))continue;const total=n(g.total_amount),exact=cash.rows.filter((c:any)=>Math.abs(Math.abs(n(c.amount))-total)<=0.02),hinted=exact.filter((c:any)=>cardHint(`${c.description} ${c.category}`));if(hinted.length===1){await settleCardInvoice(cid,g.source_file_id,iso(g.due_month)!,hinted[0].id,'CARD_INVOICE_TOTAL_AUTO');autoMatched++;cash.rows.splice(cash.rows.findIndex((x:any)=>x.id===hinted[0].id),1)}}}
   const settlements=await pool!.query(`SELECT source_file_id,due_month,total_amount,cash_transaction_id,status,matched_at FROM card_invoice_settlements WHERE company_id=$1 AND due_month=$2::date`,[cid,month])
-  const paidMap=new Map(settlements.rows.map((x:any)=>[`${x.source_file_id}|${iso(x.due_month)}`,x]))
+  const paidMap=new Map<string,any>();for(const x of settlements.rows)paidMap.set(`${x.source_file_id}|${iso(x.due_month)}`,x)
   return{autoMatched,groups:groups.rows.map((g:any)=>{const key=`${g.source_file_id}|${iso(g.due_month)}`,s:any=paidMap.get(key),paid=n(g.paid_count)>=n(g.item_count)||s?.status==='PAID',candidates=paid?[]:cash.rows.filter((c:any)=>Math.abs(Math.abs(n(c.amount))-n(g.total_amount))<=0.02).map((c:any)=>({id:c.id,date:iso(c.competence_at||c.occurred_at),description:c.description,amount:Math.abs(n(c.amount)),hint:cardHint(`${c.description} ${c.category}`)}));return{sourceFileId:g.source_file_id,sourceName:g.source_name,dueMonth:iso(g.due_month),firstDue:iso(g.first_due),lastDue:iso(g.last_due),itemCount:n(g.item_count),total:n(g.total_amount),status:paid?'PAID':'OPEN',matchedAt:s?.matched_at||null,cashTransactionId:s?.cash_transaction_id||null,candidates}})}}
 }
 
@@ -76,7 +77,7 @@ export function registerV083Routes(app:any){
   app.get('/api/reconciliation-v083',async(req:any,res:any)=>{if(!pool)return res.json({matches:[],openReceivables:[],openPayables:[],unmatchedCash:[],cardInvoices:[],summary:{}});const{period,from,to}=periodBounds(req.query?.period),card=await getCardInvoiceGroups(req.companyId,period,true),autoMatched=await autoReconcile(req.companyId,from,to),[links,openRec,openPay,unmatchedCash]=await Promise.all([
       pool.query(`SELECT rl.id,rl.match_type,rl.confidence,l.description left_description,l.amount left_amount,r.description right_description,r.amount right_amount FROM reconciliation_links rl JOIN transactions l ON l.id=rl.left_transaction_id JOIN transactions r ON r.id=rl.right_transaction_id WHERE rl.company_id=$1 AND rl.match_type NOT LIKE 'CARD_INVOICE_TOTAL%' AND (l.competence_at BETWEEN $2::date AND $3::date OR r.competence_at BETWEEN $2::date AND $3::date) ORDER BY rl.created_at DESC LIMIT 80`,[req.companyId,from,to]),
       pool.query(`SELECT r.id,r.transaction_id,r.customer party,r.description,r.issue_date,r.due_date,r.amount,r.payment_method FROM receivables r WHERE r.company_id=$1 AND r.receipt_status<>'RECEIVED' AND r.competence_date BETWEEN $2::date AND $3::date ORDER BY r.issue_date`,[req.companyId,from,to]),
-      pool.query(`SELECT p.id,p.transaction_id,p.supplier party,p.description,p.issue_date,p.due_date,p.amount,p.payment_method,p.origin_type FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND ((p.origin_type='CREDIT_CARD_INSTALLMENT' AND p.due_date BETWEEN $2::date AND $3::date) OR (p.origin_type<>'CREDIT_CARD_INSTALLMENT' AND p.competence_date BETWEEN $2::date AND $3::date)) ORDER BY p.due_date`,[req.companyId,from,to]),
+      pool.query(`SELECT p.id,p.transaction_id,p.supplier party,p.description,p.issue_date,p.due_date,p.amount,p.payment_method,p.origin_type FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND p.origin_type<>'CREDIT_CARD_INSTALLMENT' AND p.competence_date BETWEEN $2::date AND $3::date ORDER BY p.due_date`,[req.companyId,from,to]),
       pool.query(`SELECT t.id,t.source_file_id,t.description,t.normalized_party,t.competence_at,t.direction,t.amount,t.category,t.account_id,t.classification_status,t.payment_method,sf.validation->>'holderName' holder_name FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE t.company_id=$1 AND t.accounting_role='CASH_MOVEMENT' AND t.competence_at BETWEEN $2::date AND $3::date AND NOT EXISTS(SELECT 1 FROM reconciliation_links rl WHERE rl.company_id=$1 AND (rl.left_transaction_id=t.id OR rl.right_transaction_id=t.id)) AND NOT EXISTS(SELECT 1 FROM reconciliation_ignores ri WHERE ri.company_id=$1 AND ri.transaction_id=t.id) ORDER BY t.competence_at`,[req.companyId,from,to])])
     res.json({period,autoMatched:autoMatched+card.autoMatched,cardAutoMatched:card.autoMatched,matches:links.rows,openReceivables:openRec.rows,openPayables:openPay.rows,unmatchedCash:unmatchedCash.rows,cardInvoices:card.groups,summary:{matched:links.rowCount,receivable:openRec.rowCount,payable:openPay.rowCount,cash:unmatchedCash.rowCount,cardInvoicesOpen:card.groups.filter((x:any)=>x.status!=='PAID').length}})
   })

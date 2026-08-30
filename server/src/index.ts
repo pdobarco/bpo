@@ -19,6 +19,7 @@ import { registerV070Routes } from './v070.js'
 import { registerV080Routes,initV080Schema } from './v080.js'
 import { registerV080ExtraRoutes } from './v080extra.js'
 import { registerV082Routes } from './v082.js'
+import { registerV083Routes,initV083Schema } from './v083.js'
 import { isLikelyBusinessName,normalize } from './services/entity.js'
 import * as XLSX from 'xlsx'
 
@@ -111,6 +112,7 @@ registerV070Routes(app)
 registerV080Routes(app)
 registerV080ExtraRoutes(app)
 registerV082Routes(app)
+registerV083Routes(app)
 
 const demo={company:{id:'demo',name:'Encantê Natural',sector:'Comércio',activity:'Produtos naturais'},summary:{balance:5731.62,inflow:11096.69,outflow:13113.60,pending:2,revenue:10601,result:-6999,quality:91},months:[2379,6490,10562,19005,14445,19278,10601,0],files:[],tx:[]}
 const n=(v:any)=>Number(v||0),cleanDocument=(v:any)=>String(v||'').replace(/\D/g,'')
@@ -671,12 +673,13 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
 
 app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.8.0',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.8.0',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.8.0',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.8.3',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.8.3',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.8.3',database:'migration_failed',message:e.message})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
   await initDb()
   await initV080Schema()
+  await initV083Schema()
   await ensureMasterUser()
   if(fs.existsSync(dist)){
     await server.register(fastifyStatic,{root:dist,prefix:'/'})

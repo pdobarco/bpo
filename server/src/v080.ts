@@ -78,9 +78,9 @@ async function importOne(cid:string,type:string,f:any,company:any){const fileHas
   }catch(e){await pool!.query(`UPDATE source_files SET status='REVIEW',validation_status='ERROR',status_detail=$3,validation=$4::jsonb WHERE id=$1 AND company_id=$2`,[sourceFileId,cid,String((e as any)?.message||e),JSON.stringify({error:String((e as any)?.message||e)})]);throw e}
 }
 
-async function autoReconcile(cid:string,from:string,to:string){const [receivables,payables,cash,links]=await Promise.all([
+export async function autoReconcile(cid:string,from:string,to:string){const [receivables,payables,cash,links]=await Promise.all([
   pool!.query(`SELECT r.id,r.transaction_id,r.customer,r.description,r.issue_date,r.due_date,r.amount,r.payment_method FROM receivables r WHERE r.company_id=$1 AND r.receipt_status<>'RECEIVED' AND (r.issue_date BETWEEN $2::date-interval '15 days' AND $3::date+interval '15 days' OR r.due_date BETWEEN $2::date-interval '15 days' AND $3::date+interval '15 days')`,[cid,from,to]),
-  pool!.query(`SELECT p.id,p.transaction_id,p.supplier,p.description,p.issue_date,p.due_date,p.amount FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND p.due_date BETWEEN $2::date-interval '15 days' AND $3::date+interval '15 days'`,[cid,from,to]),
+  pool!.query(`SELECT p.id,p.transaction_id,p.supplier,p.description,p.issue_date,p.due_date,p.amount FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND p.origin_type<>'CREDIT_CARD_INSTALLMENT' AND p.due_date BETWEEN $2::date-interval '15 days' AND $3::date+interval '15 days'`,[cid,from,to]),
   pool!.query(`SELECT id,occurred_at,competence_at,description,direction,amount,payment_method,category FROM transactions WHERE company_id=$1 AND accounting_role IN ('CASH_MOVEMENT','DIRECT_BANK_INCOME','DIRECT_BANK_EXPENSE') AND competence_at BETWEEN $2::date-interval '15 days' AND $3::date+interval '15 days' ORDER BY competence_at,id`,[cid,from,to]),
   pool!.query(`SELECT left_transaction_id,right_transaction_id FROM reconciliation_links WHERE company_id=$1`,[cid])])
   const linked=new Set<string>(),usedCash=new Set<string>();for(const l of links.rows){linked.add(String(l.left_transaction_id));linked.add(String(l.right_transaction_id));usedCash.add(String(l.right_transaction_id))}
