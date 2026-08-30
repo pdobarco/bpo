@@ -17,7 +17,7 @@ const BRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'})
 const fmt=(v:any)=>BRL.format(Number(v||0))
 const num=(v:any)=>Number(v||0)
 const titleCase=(s:any)=>String(s||'').toLowerCase().replace(/\b\p{L}/gu,c=>c.toUpperCase())
-const APP_VERSION='0.8.3'
+const APP_VERSION='0.8.4'
 const currentPeriod=new Date().toISOString().slice(0,7)
 const monthName=(p:string)=>{const[y,m]=p.split('-');return new Date(Number(y),Number(m)-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}
 const dateOnly=(v:any)=>{if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:''}
@@ -124,7 +124,7 @@ function ReconRow({left,right,confidence}:any){return <div className="recon-row"
 function MainApp({session,onLogout,onSessionChange,demoMode=false}:any){
   const[page,setPage]=useState<Page>('arquivos'),[mobileMenu,setMobileMenu]=useState(false),[period,setPeriod]=useState(currentPeriod),[data,setData]=useState<any>(demoBase),[status,setStatus]=useState<any>({steps:{},quality:0}),[sourceHealth,setSourceHealth]=useState<any>({expected:[],files:[]}),[allSourceFiles,setAllSourceFiles]=useState<any[]>([]),[groups,setGroups]=useState<any[]>([]),[categories,setCategories]=useState<string[]>(fallbackCategories),[dre,setDre]=useState<any>({sections:[],result:0,revenue:0}),[dreComp,setDreComp]=useState<any>({sections:[],result:[]}),[reconciliation,setReconciliation]=useState<any>({pending:0,matches:[],sourceHealth:{expected:[]}}),[chartAccounts,setChartAccounts]=useState<any[]>([]),[companyAccounts,setCompanyAccounts]=useState<any[]>([]),[expectedSources,setExpectedSources]=useState<any[]>([]),[auditRows,setAuditRows]=useState<any[]>([]),[recentTx,setRecentTx]=useState<any[]>([])
   const[reviewMode,setReviewMode]=useState(true),[dreMode,setDreMode]=useState('month'),[configTab,setConfigTab]=useState('plano'),[adminTab,setAdminTab]=useState('empresas'),[busy,setBusy]=useState(false),[uploading,setUploading]=useState(false),[editingTx,setEditingTx]=useState<any>(null),[expanded,setExpanded]=useState<string|null>(null)
-  const[sort,setSort]=useState({key:'competence',order:'desc'}),[filters,setFilters]=useState<any>({q:'',direction:'',category:'',paymentMethod:'',status:'',classification:'PENDING'}),[txEdit,setTxEdit]=useState({competenceAt:'',accountId:'',updateRule:false,customTitle:'',applyTitleRule:false})
+  const[sort,setSort]=useState({key:'competence',order:'desc'}),[filters,setFilters]=useState<any>({q:'',direction:'',category:'',paymentMethod:'',status:'',classification:''}),[txEdit,setTxEdit]=useState({competenceAt:'',accountId:'',updateRule:false,customTitle:'',applyTitleRule:false})
   const[companyDraft,setCompanyDraft]=useState<any>({}),[accountForm,setAccountForm]=useState<any>({id:null,code:'',name:'',parentId:'',accountType:'EXPENSE',dreSection:'DESPESAS_OPERACIONAIS',isGroup:false}),[bankForm,setBankForm]=useState({label:'',institution:'',document:'',agency:'',account:''}),[sourceForm,setSourceForm]=useState({kind:'BANK_STATEMENT',label:'Extrato Bancário'})
   const[adminCompanies,setAdminCompanies]=useState<any[]>([]),[adminUsers,setAdminUsers]=useState<any[]>([]),[companyForm,setCompanyForm]=useState({name:'',document:'',sector:'',activity:''}),[userForm,setUserForm]=useState<any>({id:null,name:'',email:'',password:'',role:'OPERATOR',companyIds:[]})
   const folderRef=useRef<HTMLInputElement>(null),fileRef=useRef<HTMLInputElement>(null),tanstack=useQueryClient()
