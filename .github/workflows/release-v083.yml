@@ -35,23 +35,7 @@ jobs:
         run: npm run install:all
 
       - name: Typecheck
-        id: typecheck
-        continue-on-error: true
-        shell: bash
-        run: npm run typecheck > TYPECHECK-v0.8.3.log 2>&1
-
-      - name: Save diagnostics on failure
-        if: steps.typecheck.outcome == 'failure'
-        shell: bash
-        run: |
-          git config user.name "Clara Release Bot"
-          git config user.email "clara-release@users.noreply.github.com"
-          git add -f TYPECHECK-v0.8.3.log
-          git add package.json client/package.json server/package.json client/package-lock.json server/package-lock.json
-          git add client/src/main.tsx server/src/index.ts server/src/v080.ts server/src/v083.ts
-          git commit -m "chore: capture v0.8.3 patched diagnostics [skip ci]"
-          git push origin HEAD:release/0.8.3
-          exit 1
+        run: npm run typecheck
 
       - name: Production build
         run: npm run build
@@ -59,7 +43,6 @@ jobs:
       - name: Commit validated patch
         shell: bash
         run: |
-          rm -f TYPECHECK-v0.8.3.log
           if ! git diff --quiet; then
             git config user.name "Clara Release Bot"
             git config user.email "clara-release@users.noreply.github.com"
