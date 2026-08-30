@@ -14,6 +14,13 @@ let v080=read('server/src/v080.ts')
 v080=replaceIf(v080,'async function autoReconcile(cid:string,from:string,to:string)','export async function autoReconcile(cid:string,from:string,to:string)')
 write('server/src/v080.ts',v080)
 
+let v083=read('server/src/v083.ts')
+v083=replaceIf(v083,
+  "  const paidMap=new Map(settlements.rows.map((x:any)=>[`${x.source_file_id}|${iso(x.due_month)}`,x]))",
+  "  const paidMap=new Map<string,any>();for(const x of settlements.rows)paidMap.set(`${x.source_file_id}|${iso(x.due_month)}`,x)"
+)
+write('server/src/v083.ts',v083)
+
 let server=read('server/src/index.ts')
 server=replaceIf(server,"import { registerV082Routes } from './v082.js'","import { registerV082Routes } from './v082.js'\nimport { registerV083Routes,initV083Schema } from './v083.js'")
 server=replaceIf(server,'registerV082Routes(app)','registerV082Routes(app)\nregisterV083Routes(app)')
