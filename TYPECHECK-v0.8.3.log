@@ -6,4 +6,4 @@
 > clara-server@0.8.3 typecheck
 > tsc -p tsconfig.json --noEmit
 
-src/v083.ts(63,1): error TS1128: Declaration or statement expected.
+src/v083.ts(64,1): error TS1128: Declaration or statement expected.
