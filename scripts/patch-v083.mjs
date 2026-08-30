@@ -23,7 +23,7 @@ v083=replaceIf(v083,
   "  const paidMap=new Map(settlements.rows.map((x:any)=>[`${x.source_file_id}|${iso(x.due_month)}`,x]))",
   "  const paidMap=new Map<string,any>();for(const x of settlements.rows)paidMap.set(`${x.source_file_id}|${iso(x.due_month)}`,x)"
 )
-v083=replaceIf(v083,'candidates}})}}','candidates}})}')
+if(v083.includes('candidates}})}}'))v083=v083.replace('candidates}})}}','candidates}})}')
 v083=replaceIf(v083,
   "      pool.query(`SELECT p.id,p.transaction_id,p.supplier party,p.description,p.issue_date,p.due_date,p.amount,p.payment_method,p.origin_type FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND ((p.origin_type='CREDIT_CARD_INSTALLMENT' AND p.due_date BETWEEN $2::date AND $3::date) OR (p.origin_type<>'CREDIT_CARD_INSTALLMENT' AND p.competence_date BETWEEN $2::date AND $3::date)) ORDER BY p.due_date`,[req.companyId,from,to]),",
   "      pool.query(`SELECT p.id,p.transaction_id,p.supplier party,p.description,p.issue_date,p.due_date,p.amount,p.payment_method,p.origin_type FROM payables p WHERE p.company_id=$1 AND p.payment_status<>'PAID' AND p.origin_type<>'CREDIT_CARD_INSTALLMENT' AND p.competence_date BETWEEN $2::date AND $3::date ORDER BY p.due_date`,[req.companyId,from,to]),"
