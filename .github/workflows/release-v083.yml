@@ -38,7 +38,7 @@ jobs:
         id: typecheck
         continue-on-error: true
         shell: bash
-        run: npm run typecheck 2>&1 | tee TYPECHECK-v0.8.3.log
+        run: npm run typecheck > TYPECHECK-v0.8.3.log 2>&1
 
       - name: Save diagnostics on failure
         if: steps.typecheck.outcome == 'failure'
@@ -46,8 +46,8 @@ jobs:
         run: |
           git config user.name "Clara Release Bot"
           git config user.email "clara-release@users.noreply.github.com"
-          git add TYPECHECK-v0.8.3.log
-          git commit -m "chore: capture v0.8.3 typecheck diagnostics [skip ci]" || true
+          git add -f TYPECHECK-v0.8.3.log
+          git commit -m "chore: capture v0.8.3 typecheck diagnostics [skip ci]"
           git push origin HEAD:release/0.8.3
           exit 1
 
