@@ -17,7 +17,7 @@ const BRL=new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'})
 const fmt=(v:any)=>BRL.format(Number(v||0))
 const num=(v:any)=>Number(v||0)
 const titleCase=(s:any)=>String(s||'').toLowerCase().replace(/\b\p{L}/gu,c=>c.toUpperCase())
-const APP_VERSION='0.8.4'
+const APP_VERSION='0.8.5'
 const currentPeriod=new Date().toISOString().slice(0,7)
 const monthName=(p:string)=>{const[y,m]=p.split('-');return new Date(Number(y),Number(m)-1,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}
 const dateOnly=(v:any)=>{if(!v)return'';const m=String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${m[1]}-${m[2]}-${m[3]}`:''}
