@@ -27,7 +27,7 @@ function filterSql(cid:string,body:any){
 
 async function applyFreightHeuristic(){
   if(!pool)return
-  await pool.query(`UPDATE transactions t SET category=a.name,account_id=a.id,classification_confidence=98,classification_status='CONFIRMED',classification_source='HEURISTIC_FREIGHT_V086',dre_impact=true,accounting_role=CASE WHEN t.accounting_role='CASH_MOVEMENT' THEN 'DIRECT_BANK_EXPENSE' ELSE t.accounting_role END,updated_at=now()
+  await pool.query(`UPDATE transactions t SET category=a.name,account_id=a.id,classification_confidence=98,classification_status='CONFIRMED',classification_source='HEURISTIC_FREIGHT_V086',dre_impact=true,accounting_role=CASE WHEN t.accounting_role='CASH_MOVEMENT' THEN 'DIRECT_BANK_EXPENSE' ELSE t.accounting_role END
     FROM chart_accounts a
     WHERE a.company_id=t.company_id AND a.active=true AND a.is_group=false AND lower(a.name)=lower('Fretes e entregas')
       AND t.direction='SAIDA' AND (t.classification_status IN ('PENDING','SUGGESTED') OR t.account_id IS NULL OR t.category IS NULL OR t.category='A classificar')
@@ -64,7 +64,7 @@ export function registerV086Routes(app:any){
     const client=await pool.connect()
     try{
       await client.query('BEGIN')
-      await client.query(`UPDATE transactions SET category=$3,account_id=$4,classification_confidence=100,classification_status='CONFIRMED',classification_source='FILTER_BULK_V086',dre_impact=$5,accounting_role=CASE WHEN accounting_role='CASH_MOVEMENT' AND $3='Transferência entre contas próprias' THEN 'TRANSFER' WHEN accounting_role='CASH_MOVEMENT' AND $3='Liquidação de cartão de crédito' THEN 'CARD_SETTLEMENT' WHEN accounting_role='CASH_MOVEMENT' AND direction='ENTRADA' THEN 'DIRECT_BANK_INCOME' WHEN accounting_role='CASH_MOVEMENT' AND direction='SAIDA' THEN 'DIRECT_BANK_EXPENSE' ELSE accounting_role END,updated_at=now() WHERE company_id=$1 AND id=ANY($2::uuid[])`,[cid,ids,a.name,a.id,dreImpact])
+      await client.query(`UPDATE transactions SET category=$3,account_id=$4,classification_confidence=100,classification_status='CONFIRMED',classification_source='FILTER_BULK_V086',dre_impact=$5,accounting_role=CASE WHEN accounting_role='CASH_MOVEMENT' AND $3='Transferência entre contas próprias' THEN 'TRANSFER' WHEN accounting_role='CASH_MOVEMENT' AND $3='Liquidação de cartão de crédito' THEN 'CARD_SETTLEMENT' WHEN accounting_role='CASH_MOVEMENT' AND direction='ENTRADA' THEN 'DIRECT_BANK_INCOME' WHEN accounting_role='CASH_MOVEMENT' AND direction='SAIDA' THEN 'DIRECT_BANK_EXPENSE' ELSE accounting_role END WHERE company_id=$1 AND id=ANY($2::uuid[])`,[cid,ids,a.name,a.id,dreImpact])
       await client.query(`UPDATE payables SET category=$3,account_id=$4,classification_status='CONFIRMED',updated_at=now() WHERE company_id=$1 AND transaction_id=ANY($2::uuid[])`,[cid,ids,a.name,a.id])
       const unique=new Map<string,any>()
       for(const row of rows.rows){const party=String(row.normalized_party||'').trim().toUpperCase();if(!party)continue;unique.set(`${row.direction}|${party}`,{party,direction:row.direction,document:row.counterparty_document||null})}
