@@ -16,6 +16,9 @@ export async function classify(transaction,companyId,company=null){
     return resultWithAccount(companyId,{category:'Receita de vendas',confidence:99,scope:null,source:'PARSER',status:'AUTO'},party,document)
   }
   if(source==='pagbank_sales') return resultWithAccount(companyId,{category:'Receita de vendas',confidence:100,scope:null,source:'PARSER',status:'AUTO'},party,document)
+  if(direction==='SAIDA'&&/(SUPER\s*FRETES|MELHOR\s*ENVIO|CORREIOS|JADLOG|LOGGI|TRANSPORTADORA|\bFRETE\b)/.test(txt)){
+    return resultWithAccount(companyId,{category:'Fretes e entregas',confidence:98,scope:null,source:'HEURISTIC_FREIGHT_V086',status:'AUTO'},party,document)
+  }
   if(source==='nubank_card') return resultWithAccount(companyId,{category:'A classificar',confidence:0,scope:null,source:null,status:'PENDING'},party,document)
   if(/^PAGAMENTO DE FATURA/.test(txt)) return resultWithAccount(companyId,{category:'Liquidação de cartão de crédito',confidence:100,scope:null,source:'PARSER',status:'AUTO'},party,document)
 
