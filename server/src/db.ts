@@ -227,6 +227,10 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_receivables_due ON receivables(company_id,due_date,receipt_status)`)
 
   await pool.query(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ DEFAULT now())`)
+  // A legacy migration só é necessária para bancos anteriores ao schema_meta. Em bancos já
+  // versionados ela não pode rodar novamente: reescrevia dre_impact/cash_impact a cada boot.
+  const versioned = await pool.query(`SELECT 1 FROM schema_meta WHERE key='schema_version' LIMIT 1`)
+  const needsLegacyMigration = !versioned.rowCount && !(await getMeta('legacy_transactions_migrated'))
   await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('schema_version','0.7.0',now())
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`)
 
@@ -249,8 +253,64 @@ export async function initDb() {
   const companyRows = await pool.query('SELECT id FROM companies')
   for (const row of companyRows.rows) await ensureDefaultChart(row.id)
   await seedRules()
-  await migrateLegacyTransactions()
+  if (needsLegacyMigration) await migrateLegacyTransactions()
+  await setMeta('legacy_transactions_migrated', 'done')
   return true
+}
+
+export async function getMeta(key) {
+  if (!pool) return null
+  const r = await pool.query(`SELECT value FROM schema_meta WHERE key=$1 LIMIT 1`, [key])
+  return r.rows[0]?.value ?? null
+}
+
+export async function setMeta(key, value) {
+  if (!pool) return
+  await pool.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES($1,$2,now())
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`, [key, value])
+}
+
+const OFF_DRE_CATEGORIES = ['Transferência entre contas próprias', 'Aporte / Empréstimo', 'Liquidação de cartão de crédito', 'Retirada do sócio']
+
+/**
+ * Restaura os flags dre_impact/cash_impact a partir do papel contábil de cada lançamento,
+ * usando as mesmas regras aplicadas na importação. Corrige bases afetadas pela antiga
+ * migração legada que rodava a cada boot. Executa uma única vez por banco.
+ */
+export async function repairAccountingFlags() {
+  if (!pool || await getMeta('accounting_flags_repaired_v087')) return
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    // Backup dos flags originais antes de qualquer alteração (permite reverter: UPDATE ... FROM backup).
+    await client.query(`CREATE TABLE IF NOT EXISTS backup_v087_transaction_flags AS
+      SELECT id,company_id,accounting_role,status,dre_impact,cash_impact,now() AS backed_up_at FROM transactions`)
+    const run = async (sql: string, params: any[] = []) => (await client.query(sql, params)).rowCount || 0
+    let changed = 0
+    changed += await run(`UPDATE transactions SET dre_impact=false,cash_impact=false WHERE status='IGNORED' AND (dre_impact OR cash_impact)`)
+    changed += await run(`UPDATE transactions SET dre_impact=false,cash_impact=false
+      WHERE COALESCE(status,'')<>'IGNORED' AND accounting_role IN ('RECEIVABLE_CONTROL','PAYABLE_CONTROL','CARD_EVIDENCE') AND (dre_impact OR cash_impact)`)
+    changed += await run(`UPDATE transactions SET dre_impact=true,cash_impact=false
+      WHERE COALESCE(status,'')<>'IGNORED' AND accounting_role IN ('SALE_ECONOMIC','PAYABLE_ECONOMIC','CARD_PURCHASE_ECONOMIC','PAYABLE','RECEIVABLE','FEE','SALES_EVENT','CARD_PURCHASE')
+        AND (NOT dre_impact OR cash_impact)`)
+    changed += await run(`UPDATE transactions SET dre_impact=false,cash_impact=true
+      WHERE COALESCE(status,'')<>'IGNORED' AND accounting_role IN ('CASH_MOVEMENT','TRANSFER','INVESTMENT_TRANSFER','CARD_SETTLEMENT','CASH_RECEIPT')
+        AND (dre_impact OR NOT cash_impact)`)
+    changed += await run(`UPDATE transactions t SET cash_impact=true,
+        dre_impact=(COALESCE(a.dre_section,'')<>'FORA_DRE' AND NOT (COALESCE(t.category,'')=ANY($1::text[])))
+      FROM chart_accounts a WHERE a.id=t.account_id AND COALESCE(t.status,'')<>'IGNORED'
+        AND t.accounting_role IN ('DIRECT_BANK_INCOME','DIRECT_BANK_EXPENSE')
+        AND (NOT t.cash_impact OR t.dre_impact IS DISTINCT FROM (COALESCE(a.dre_section,'')<>'FORA_DRE' AND NOT (COALESCE(t.category,'')=ANY($1::text[]))))`, [OFF_DRE_CATEGORIES])
+    await client.query(`INSERT INTO schema_meta(key,value,updated_at) VALUES('accounting_flags_repaired_v087',$1,now())
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`, [String(changed)])
+    await client.query('COMMIT')
+    if (changed) console.log(`repairAccountingFlags: ${changed} lançamento(s) corrigido(s)`)
+  } catch (e) {
+    await client.query('ROLLBACK')
+    throw e
+  } finally {
+    client.release()
+  }
 }
 
 export async function ensureDefaultChart(companyId) {
@@ -270,6 +330,12 @@ export async function ensureDefaultChart(companyId) {
 }
 
 async function seedRules() {
+  // Regras globais valem para todas as empresas: padrões curtos ou com curingas de LIKE
+  // (ex.: '%') casariam qualquer lançamento e contaminariam a classificação de todos os clientes.
+  // As regras removidas ficam guardadas em backup_v087_global_rules para auditoria/restauração.
+  await pool.query(`CREATE TABLE IF NOT EXISTS backup_v087_global_rules (LIKE classification_rules)`)
+  await pool.query(`WITH removed AS (DELETE FROM classification_rules WHERE scope='GLOBAL' AND (length(trim(pattern))<3 OR strpos(pattern,'%')>0) RETURNING *)
+    INSERT INTO backup_v087_global_rules SELECT * FROM removed`)
   const rules = [
     ['CELESC','CELESC','SAIDA','Energia elétrica',100], ['CASAN','CASAN','SAIDA','Água e saneamento',100],
     ['GOOGLE ADS','GOOGLE ADS','SAIDA','Marketing e anúncios',100], ['SUPERFRETE','SUPERFRETE','SAIDA','Fretes e entregas',100],

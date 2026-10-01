@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clara
+          POSTGRES_PASSWORD: clara
+          POSTGRES_DB: clara_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U clara" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            server/package-lock.json
+
+      - name: Install dependencies
+        run: npm run install:all
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Integration smoke test (PostgreSQL)
+        env:
+          DATABASE_URL: postgresql://clara:clara@localhost:5432/clara_ci
+        run: node scripts/smoke-test.mjs
+
+      - name: Dependency audit (informativo)
+        continue-on-error: true
+        run: npm --prefix server audit --omit=dev && npm --prefix client audit --omit=dev

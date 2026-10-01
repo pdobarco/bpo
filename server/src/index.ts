@@ -3,13 +3,15 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
+import helmet from '@fastify/helmet'
+import rateLimit from '@fastify/rate-limit'
 import crypto from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { initDb,pool,getCompany,getCompanyAccounts,getChartAccounts,findAccountByName,DRE_SECTIONS,audit,ensureDefaultChart } from './db.js'
-import { authenticateRequest,authPayload,bearerToken,createSession,destroySession,ensureMasterUser,hashPassword,linkMasterToCompany,masterEmail,resolveCompanyId,userCompanies,verifyPassword } from './auth.js'
+import { initDb,repairAccountingFlags,pool,getCompany,getCompanyAccounts,getChartAccounts,findAccountByName,DRE_SECTIONS,audit,ensureDefaultChart } from './db.js'
+import { authenticateRequest,authPayload,bearerToken,createSession,destroySession,purgeExpiredSessions,ensureMasterUser,hashPassword,linkMasterToCompany,masterEmail,resolveCompanyId,userCompanies,verifyPassword } from './auth.js'
 import { parsePdf } from './parsers/pdf.js'
 import { parseTabular } from './parsers/tabular.js'
 import { parseSupplierBase } from './parsers/suppliers.js'
@@ -26,9 +28,32 @@ import * as XLSX from 'xlsx'
 
 const __dirname=path.dirname(fileURLToPath(import.meta.url))
 const PORT=Number(process.env.PORT||3000),mb=Number(process.env.MAX_UPLOAD_MB||25)
-const server=Fastify({logger:true,bodyLimit:Math.max(3,mb)*1024*1024})
-await server.register(cors,{origin:true})
+const APP_VERSION=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../package.json'),'utf8')).version as string
+// Railway (e a maioria dos PaaS) coloca um proxy à frente da aplicação; confiar em um salto
+// garante que req.ip seja o IP real do cliente para o rate limit, sem aceitar X-Forwarded-For forjado.
+const trustProxy=process.env.TRUST_PROXY==='false'?false:Number(process.env.TRUST_PROXY||1)
+const server=Fastify({logger:{level:process.env.LOG_LEVEL||'info',redact:['req.headers.authorization','req.headers.cookie']},bodyLimit:Math.max(3,mb)*1024*1024,trustProxy:trustProxy as any})
+await server.register(helmet,{
+  contentSecurityPolicy:{directives:{
+    defaultSrc:["'self'"],scriptSrc:["'self'"],styleSrc:["'self'","'unsafe-inline'"],imgSrc:["'self'",'data:','blob:'],
+    connectSrc:["'self'"],fontSrc:["'self'",'data:'],objectSrc:["'none'"],frameAncestors:["'none'"],baseUri:["'self'"],formAction:["'self'"],workerSrc:["'self'"],manifestSrc:["'self'"]
+  }},
+  crossOriginEmbedderPolicy:false
+})
+// O front é servido pela própria API (mesma origem). CORS só é habilitado para origens explicitamente configuradas.
+const corsOrigins=String(process.env.CORS_ORIGINS||'').split(',').map(x=>x.trim()).filter(Boolean)
+if(corsOrigins.length)await server.register(cors,{origin:corsOrigins})
+await server.register(rateLimit,{global:false,errorResponseBuilder:(_req:any,ctx:any)=>({statusCode:429,message:`Muitas tentativas. Aguarde ${Math.ceil(Number(ctx.ttl||0)/1000)} segundo(s) e tente novamente.`})})
 await server.register(multipart,{limits:{fileSize:mb*1024*1024,files:100}})
+
+server.setErrorHandler((error:any,req:any,reply:any)=>{
+  const status=Number(error?.statusCode)>=400?Number(error.statusCode):500
+  if(status>=500)req.log.error({err:error},'unhandled error')
+  else req.log.warn({err:error},'request error')
+  // Erros 5xx nunca expõem detalhes internos (SQL, stack, nomes de tabela) ao cliente.
+  const message=status>=500?'Erro interno. Tente novamente em instantes.':(error?.message||'Requisição inválida.')
+  reply.code(status).send({message})
+})
 
 const bodySchemas: Record<string, any> = {
   'PUT /api/company': z.object({name:z.string().optional(),document:z.string().nullable().optional(),sector:z.string().nullable().optional(),activity:z.string().nullable().optional()}).passthrough(),
@@ -56,7 +81,17 @@ const bodySchemas: Record<string, any> = {
   'POST /api/pricing/models': z.object({name:z.string().min(1),mode:z.enum(['SALE','COST']).default('SALE'),lines:z.array(z.any()).default([]),targetMargin:z.number().optional(),markup:z.number().optional()}).passthrough(),
   'PUT /api/pricing/models/:id': z.object({name:z.string().min(1),mode:z.enum(['SALE','COST']).default('SALE'),lines:z.array(z.any()).default([]),targetMargin:z.number().optional(),markup:z.number().optional()}).passthrough(),
   'POST /api/pricing/market-compare': z.object({product:z.string().min(2),brand:z.string().optional(),category:z.string().optional(),referencePrice:z.number().optional()}).passthrough(),
-  'POST /api/pricing/export': z.object({rows:z.array(z.any()).max(5000),lines:z.array(z.any()).optional(),modelName:z.string().optional()}).passthrough()
+  'POST /api/pricing/export': z.object({rows:z.array(z.any()).max(5000),lines:z.array(z.any()).optional(),modelName:z.string().optional()}).passthrough(),
+  'POST /api/classification-rules': z.object({pattern:z.string().trim().min(3).max(140).refine(v=>!/[%_\\]/.test(v),'O padrão não pode conter curingas (%, _ ou \\).'),category:z.string().trim().min(1).max(160),scope:z.enum(['COMPANY','GLOBAL']).default('COMPANY'),direction:z.enum(['ENTRADA','SAIDA','ANY']).default('ANY')})
+}
+
+// Limites por IP para rotas públicas sensíveis (força bruta de senha, criação em massa de contas/sessões).
+const rateLimits:Record<string,{max:number,timeWindow:string}>={
+  'POST /api/auth/login':{max:Number(process.env.LOGIN_RATE_LIMIT||10),timeWindow:'1 minute'},
+  'POST /api/auth/register':{max:5,timeWindow:'1 hour'},
+  'GET /api/demo/session':{max:20,timeWindow:'1 hour'},
+  'POST /api/ai/suggest':{max:20,timeWindow:'1 minute'},
+  'POST /api/pricing/market-compare':{max:20,timeWindow:'1 minute'}
 }
 
 
@@ -81,7 +116,8 @@ async function collectUploads(req:any){
 
 function isPublicApi(url:string){return url==='/api/health'||url==='/api/auth/status'||url==='/api/auth/login'||url==='/api/auth/register'||url==='/api/demo/session'}
 function registerRoute(method:any,url:string,...handlers:any[]){
-  server.route({method,url,handler:async(req:any,reply:any)=>{
+  const limit=rateLimits[`${method} ${url}`]
+  server.route({method,url,...(limit?{config:{rateLimit:limit}}:{}),handler:async(req:any,reply:any)=>{
     const schema=bodySchemas[`${method} ${url}`]
     if(schema){const parsed=schema.safeParse(req.body||{});if(!parsed.success)return reply.code(400).send({message:'Dados inválidos.',issues:parsed.error.issues});req.body=parsed.data}
     if(!isPublicApi(url)){
@@ -90,7 +126,7 @@ function registerRoute(method:any,url:string,...handlers:any[]){
       req.auth=auth
       if(url.startsWith('/api/admin/')&&auth.role!=='MASTER')return reply.code(403).send({message:'Apenas o usuário master pode acessar esta área.'})
       if(auth.role==='VIEWER'&&method!=='GET'&&!url.startsWith('/api/auth/'))return reply.code(403).send({message:'Seu perfil é somente leitura.'})
-      const adminOnlyPrefixes=['/api/company','/api/chart-accounts','/api/company-accounts','/api/expected-sources','/api/periods/']
+      const adminOnlyPrefixes=['/api/company','/api/chart-accounts','/api/company-accounts','/api/expected-sources','/api/periods/','/api/source-files/reset']
       if(auth.role==='OPERATOR'&&method!=='GET'&&adminOnlyPrefixes.some(prefix=>url.startsWith(prefix)))return reply.code(403).send({message:'Esta ação exige perfil ADMIN ou MASTER.'})
       if(!url.startsWith('/api/admin/')&&!url.startsWith('/api/auth/')){
         req.companyId=await resolveCompanyId(req)
@@ -159,6 +195,9 @@ async function ensureAccountForCategory(cid:any,category:any,direction:any='SAID
 }
 async function upsertCompanyRule({cid,party,document,direction,category,accountId,source='MANUAL',sourceFileId=null}:any){await pool.query(`DELETE FROM classification_rules WHERE scope='COMPANY' AND company_id=$1 AND normalized_party=$2 AND direction=$3`,[cid,party,direction]);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,entity_document,direction,category,account_id,confidence,source,source_file_id) VALUES('COMPANY',$1,$2,$2,$3,$4,$5,$6,100,$7,$8)`,[cid,party,document||null,direction,category,accountId||null,source,sourceFileId])}
 async function promoteGlobalRule({cid,party,document,direction,category,source='MANUAL',sourceFileId=null}:any){
+  // A empresa de demonstração é pública e anônima: nunca alimenta a biblioteca compartilhada.
+  const demoCompany=await pool.query(`SELECT 1 FROM companies WHERE id=$1 AND COALESCE(is_demo,false)=true`,[cid]);if(demoCompany.rowCount)return false
+  if(String(party||'').trim().length<3)return false
   const doc=cleanDocument(document),blocked=new Set(['Transferência entre contas próprias','Aporte / Empréstimo','Liquidação de cartão de crédito','Retirada do sócio']),shareable=direction==='SAIDA'&&!blocked.has(category)&&(doc.length===14||isLikelyBusinessName(party));if(!shareable)return false
   let rule=await pool.query(`SELECT id FROM classification_rules WHERE scope='GLOBAL' AND normalized_party=$1 AND direction=$2 AND category=$3 LIMIT 1`,[party,direction,category]),ruleId
   if(!rule.rowCount){const ins=await pool.query(`INSERT INTO classification_rules(scope,pattern,normalized_party,entity_document,direction,category,confidence,source,confirmation_count,source_file_id) VALUES('GLOBAL',$1,$1,$2,$3,$4,80,$5,0,$6) RETURNING id`,[party,doc.length===14?doc:null,direction,category,source,sourceFileId]);ruleId=ins.rows[0].id}else ruleId=rule.rows[0].id
@@ -324,6 +363,7 @@ async function periodStatus(cid:any,range:any){
 }
 
 
+const DUMMY_PASSWORD_HASH=hashPassword(crypto.randomBytes(16).toString('hex'))
 app.get('/api/auth/status',async(req,res)=>{
   if(!pool)return res.json({ready:false,masterEmail:masterEmail(),masterReady:false})
   const r=await pool.query(`SELECT password_hash IS NOT NULL AS ready FROM users WHERE lower(email)=lower($1) LIMIT 1`,[masterEmail()])
@@ -334,7 +374,8 @@ app.post('/api/auth/login',async(req,res)=>{
   const email=String(req.body.email||'').trim().toLowerCase(),password=String(req.body.password||'')
   const r=await pool.query(`SELECT id,email,name,password_hash,role,status FROM users WHERE lower(email)=lower($1) LIMIT 1`,[email])
   const user=r.rows[0]
-  if(!user||user.status!=='ACTIVE'||!verifyPassword(password,user.password_hash))return res.status(401).json({message:'E-mail ou senha inválidos.'})
+  const passwordOk=verifyPassword(password,user?.password_hash||DUMMY_PASSWORD_HASH)
+  if(!user||user.status!=='ACTIVE'||!passwordOk)return res.status(401).json({message:'E-mail ou senha inválidos.'})
   const session=await createSession(user.id)
   await pool.query(`UPDATE users SET last_login_at=now(),updated_at=now() WHERE id=$1`,[user.id])
   const payload=await authPayload({id:user.id,email:user.email,name:user.name,role:user.role,status:user.status})
@@ -401,8 +442,11 @@ app.patch('/api/admin/users/:id',async(req,res)=>{
   const isPrimaryMaster=String(current.rows[0].email).toLowerCase()===masterEmail()
   const {name,role,status,password,companyIds}=req.body
   if(isPrimaryMaster&&(role&&role!=='MASTER'||status&&status!=='ACTIVE'))return res.status(400).json({message:'O usuário master principal deve permanecer ativo como MASTER.'})
+  if(!isPrimaryMaster&&role==='MASTER')return res.status(400).json({message:'O perfil MASTER está reservado ao usuário master configurado.'})
   const nextRole=isPrimaryMaster?'MASTER':(role||current.rows[0].role)
   await pool.query(`UPDATE users SET name=COALESCE(NULLIF($2,''),name),role=$3,status=COALESCE($4,status),password_hash=CASE WHEN $5::text IS NULL THEN password_hash ELSE $5 END,updated_at=now() WHERE id=$1`,[req.params.id,name??'',nextRole,status??null,password?hashPassword(password):null])
+  // Troca de senha, desativação ou mudança de perfil encerram as sessões abertas do usuário.
+  if(password||status==='INACTIVE'||nextRole!==current.rows[0].role)await pool.query(`DELETE FROM auth_sessions WHERE user_id=$1`,[req.params.id])
   if(Array.isArray(companyIds)){
     await pool.query(`DELETE FROM user_companies WHERE user_id=$1`,[req.params.id])
     for(const cid of companyIds)await pool.query(`INSERT INTO user_companies(user_id,company_id,role) SELECT $1,id,$3 FROM companies WHERE id=$2 AND active=true ON CONFLICT DO NOTHING`,[req.params.id,cid,nextRole])
@@ -479,7 +523,7 @@ app.get('/api/transactions',async(req,res)=>{
     const add=(clause,value)=>{params.push(value);where.push(clause.replace('?',`$${params.length}`))}
     if(req.query.q){const q=`%${req.query.q}%`;params.push(q,q,q);where.push(`(t.description ILIKE $${params.length-2} OR t.category ILIKE $${params.length-1} OR t.normalized_party ILIKE $${params.length})`)}
     if(req.query.direction)add(`t.direction=?`,req.query.direction);if(req.query.category)add(`t.category=?`,req.query.category);if(req.query.paymentMethod)add(`t.payment_method=?`,req.query.paymentMethod);if(req.query.status)add(`t.financial_status=?`,req.query.status);if(req.query.sourceFile)add(`sf.id::text=?`,req.query.sourceFile);if(req.query.classification==='PENDING')where.push(`t.accounting_role NOT IN ('RECEIVABLE_CONTROL','PAYABLE_CONTROL','CARD_EVIDENCE') AND (t.classification_status IN ('PENDING','SUGGESTED') OR t.category IS NULL OR t.category='A classificar' OR (t.accounting_role='CASH_MOVEMENT' AND NOT EXISTS(SELECT 1 FROM reconciliation_links rl WHERE rl.company_id=t.company_id AND (rl.left_transaction_id=t.id OR rl.right_transaction_id=t.id)) AND NOT EXISTS(SELECT 1 FROM reconciliation_ignores ri WHERE ri.company_id=t.company_id AND ri.transaction_id=t.id)))`);if(req.query.classification==='CONFIRMED')where.push(`t.classification_status IN ('CONFIRMED','AUTO') AND t.accounting_role NOT IN ('CASH_MOVEMENT','RECEIVABLE_CONTROL','PAYABLE_CONTROL','CARD_EVIDENCE')`)
-    const sortMap={competence:effectiveCompetence,description:'t.description',paymentMethod:'t.payment_method',category:'t.category',status:'t.financial_status',amount:'t.amount'},sortExpr=sortMap[req.query.sort]||effectiveCompetence,sortOrder=String(req.query.order).toLowerCase()==='asc'?'ASC':'DESC',limit=Math.min(500,Math.max(20,Number(req.query.limit)||200)),offset=Math.max(0,Number(req.query.offset)||0)
+    const sortMap={competence:effectiveCompetence,description:'t.description',paymentMethod:'t.payment_method',category:'t.category',status:'t.financial_status',amount:'t.amount'},sortExpr=Object.hasOwn(sortMap,String(req.query.sort))?sortMap[String(req.query.sort)]:effectiveCompetence,sortOrder=String(req.query.order).toLowerCase()==='asc'?'ASC':'DESC',limit=Math.min(500,Math.max(20,Number(req.query.limit)||200)),offset=Math.max(0,Number(req.query.offset)||0)
     const summary=await pool.query(`SELECT count(*)::int n,COALESCE(sum(CASE WHEN t.amount>0 THEN t.amount ELSE 0 END),0)::numeric inflow,COALESCE(abs(sum(CASE WHEN t.amount<0 THEN t.amount ELSE 0 END)),0)::numeric outflow FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')}`,params)
     const rows=await pool.query(`SELECT t.id,t.occurred_at,t.competence_at,${effectiveCompetence} effective_competence_at,t.due_at,t.paid_at,t.description,t.custom_title,t.normalized_party,t.counterparty_document,t.direction,t.amount,t.gross_amount,t.fee_amount,t.net_amount,t.category,t.account_id,t.payment_method,t.financial_status,t.classification_status,t.classification_source,t.classification_confidence,t.accounting_role,t.dre_impact,t.cash_impact,t.source_page,sf.id source_file_id,sf.name source_file_name,sf.kind source_kind FROM transactions t LEFT JOIN source_files sf ON sf.id=t.source_file_id WHERE ${where.join(' AND ')} ORDER BY ${sortExpr} ${sortOrder} NULLS LAST,t.occurred_at DESC,t.id DESC LIMIT ${limit} OFFSET ${offset}`,params)
     res.json({rows:rows.rows,total:n(summary.rows[0]?.n),inflow:n(summary.rows[0]?.inflow),outflow:n(summary.rows[0]?.outflow)})
@@ -508,7 +552,7 @@ app.patch('/api/transactions/:id',async(req,res)=>{
 app.post('/api/transactions/confirm-batch',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,ids=req.body.ids||[];const r=await pool.query(`UPDATE transactions SET classification_status='CONFIRMED',classification_source=CASE WHEN accounting_role='CASH_MOVEMENT' THEN 'MANUAL_DIRECT_CONFIRM' ELSE COALESCE(classification_source,'BULK_CONFIRM') END,dre_impact=CASE WHEN accounting_role='CASH_MOVEMENT' THEN CASE WHEN category IN ('Transferência entre contas próprias','Aporte / Empréstimo','Liquidação de cartão de crédito','Retirada do sócio') THEN false ELSE true END ELSE dre_impact END,accounting_role=CASE WHEN accounting_role='CASH_MOVEMENT' THEN CASE WHEN category='Transferência entre contas próprias' THEN 'TRANSFER' WHEN direction='ENTRADA' THEN 'DIRECT_BANK_INCOME' ELSE 'DIRECT_BANK_EXPENSE' END ELSE accounting_role END WHERE company_id=$1 AND id=ANY($2::uuid[]) AND account_id IS NOT NULL AND category IS NOT NULL AND category<>'A classificar' AND NOT EXISTS (SELECT 1 FROM period_closures pc WHERE pc.company_id=transactions.company_id AND pc.period_key=to_char(transactions.competence_at,'YYYY-MM') AND pc.status='CLOSED') RETURNING id`,[cid,ids]);await auditSafe(cid,'TRANSACTIONS_BULK_CONFIRMED','transaction','batch',{requested:ids.length,confirmed:r.rowCount});res.json({ok:true,requested:ids.length,confirmed:r.rowCount,skipped:ids.length-r.rowCount})})
 
 app.get('/api/dashboard',async(req,res)=>{
-  if(!pool)return res.json(demo);try{const cid=req.companyId,range=rangeFromQuery(req.query),year=Number(range.from.slice(0,4)),[co,dre,groups,status,cash,months,payments]=await Promise.all([getCompany(cid),buildDre(cid,range),getReviewGroups(cid,range),periodStatus(cid,range),pool.query(`SELECT COALESCE(sum(CASE WHEN amount>0 AND cash_impact THEN amount ELSE 0 END),0)::numeric inflow,COALESCE(abs(sum(CASE WHEN amount<0 AND cash_impact THEN amount ELSE 0 END)),0)::numeric outflow FROM transactions WHERE company_id=$1 AND occurred_at::date BETWEEN $2::date AND $3::date`,[cid,range.from,range.to]),pool.query(`SELECT EXTRACT(MONTH FROM competence_at)::int m,COALESCE(sum(amount),0)::numeric total FROM transactions t JOIN chart_accounts a ON a.id=t.account_id WHERE t.company_id=$1 AND t.dre_impact=true AND a.dre_section='RECEITA_BRUTA' AND EXTRACT(YEAR FROM competence_at)=$2 GROUP BY m ORDER BY m`,[cid,year]),pool.query(`SELECT COALESCE(payment_method,'Não informado') method,COALESCE(sum(CASE WHEN amount>0 AND cash_impact THEN amount ELSE 0 END),0)::numeric received,COALESCE(abs(sum(CASE WHEN amount<0 AND cash_impact THEN amount ELSE 0 END)),0)::numeric paid FROM transactions WHERE company_id=$1 AND occurred_at::date BETWEEN $2::date AND $3::date GROUP BY payment_method ORDER BY received DESC`,[cid,range.from,range.to])]),monthArr=Array(12).fill(0);months.rows.forEach(x=>monthArr[x.m-1]=n(x.total));res.json({company:co,period:range,summary:{balance:n(cash.rows[0]?.inflow)-n(cash.rows[0]?.outflow),inflow:n(cash.rows[0]?.inflow),outflow:n(cash.rows[0]?.outflow),pending:groups.length,revenue:dre.revenue,result:dre.result,quality:status.quality,ready:status.ready,closed:status.closed,unclassifiedValue:status.unclassifiedValue},months:monthArr,payments:payments.rows,status:status.steps})}catch(e){console.error(e);res.json(demo)}})
+  if(!pool)return res.json(demo);try{const cid=req.companyId,range=rangeFromQuery(req.query),year=Number(range.from.slice(0,4)),[co,dre,groups,status,cash,months,payments]=await Promise.all([getCompany(cid),buildDre(cid,range),getReviewGroups(cid,range),periodStatus(cid,range),pool.query(`SELECT COALESCE(sum(CASE WHEN amount>0 AND cash_impact THEN amount ELSE 0 END),0)::numeric inflow,COALESCE(abs(sum(CASE WHEN amount<0 AND cash_impact THEN amount ELSE 0 END)),0)::numeric outflow FROM transactions WHERE company_id=$1 AND occurred_at::date BETWEEN $2::date AND $3::date`,[cid,range.from,range.to]),pool.query(`SELECT EXTRACT(MONTH FROM competence_at)::int m,COALESCE(sum(amount),0)::numeric total FROM transactions t JOIN chart_accounts a ON a.id=t.account_id WHERE t.company_id=$1 AND t.dre_impact=true AND a.dre_section='RECEITA_BRUTA' AND EXTRACT(YEAR FROM competence_at)=$2 GROUP BY m ORDER BY m`,[cid,year]),pool.query(`SELECT COALESCE(payment_method,'Não informado') method,COALESCE(sum(CASE WHEN amount>0 AND cash_impact THEN amount ELSE 0 END),0)::numeric received,COALESCE(abs(sum(CASE WHEN amount<0 AND cash_impact THEN amount ELSE 0 END)),0)::numeric paid FROM transactions WHERE company_id=$1 AND occurred_at::date BETWEEN $2::date AND $3::date GROUP BY payment_method ORDER BY received DESC`,[cid,range.from,range.to])]),monthArr=Array(12).fill(0);months.rows.forEach(x=>monthArr[x.m-1]=n(x.total));res.json({company:co,period:range,summary:{balance:n(cash.rows[0]?.inflow)-n(cash.rows[0]?.outflow),inflow:n(cash.rows[0]?.inflow),outflow:n(cash.rows[0]?.outflow),pending:groups.length,revenue:dre.revenue,result:dre.result,quality:status.quality,ready:status.ready,closed:status.closed,unclassifiedValue:status.unclassifiedValue},months:monthArr,payments:payments.rows,status:status.steps})}catch(e){req.log.error({err:e},'dashboard');res.status(500).json({message:'Não foi possível carregar o resumo.'})}})
 
 app.get('/api/review-groups',async(req,res)=>{if(!pool)return res.json({groups:[]});res.json({groups:await getReviewGroups(req.companyId,rangeFromQuery(req.query))})})
 app.post('/api/review-groups/classify',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{normalizedParty,counterpartyDocument,direction,category,remember=true,onlyIds=[]}=req.body;if(!normalizedParty||!direction||!category)return res.status(400).json({message:'Informe nome, direção e categoria.'});const party=String(normalizedParty).toUpperCase().trim(),account=await ensureAccountForCategory(cid,category,direction);if(remember)await learnClassification({cid,party,document:counterpartyDocument,direction,category,source:'MANUAL',applyTransactions:true});else if(Array.isArray(onlyIds)&&onlyIds.length)await pool.query(`UPDATE transactions SET category=$2,account_id=$4,classification_confidence=100,classification_status='CONFIRMED',classification_source='MANUAL',dre_impact=$5 WHERE company_id=$1 AND id=ANY($3::uuid[]) AND NOT EXISTS (SELECT 1 FROM period_closures pc WHERE pc.company_id=transactions.company_id AND pc.period_key=to_char(transactions.competence_at,'YYYY-MM') AND pc.status='CLOSED')`,[cid,category,onlyIds,account?.id||null,dreImpactForCategory(category)]);await applyAccountingPolicy(cid);res.json({ok:true})})
@@ -675,9 +719,9 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   res.json({message:summary,received,processedFiles,records,duplicates,retriedFiles,reviewFiles,failedFiles,syncMode,syncApplied:syncMode?true:undefined,results})
 })
 
-app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body,party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
+app.post('/api/classification-rules',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{pattern,category,scope='COMPANY',direction='ANY'}=req.body;if(scope==='GLOBAL'&&req.auth.role!=='MASTER')return res.status(403).json({message:'Somente o usuário master pode criar regras globais, compartilhadas entre empresas.'});const party=String(pattern).toUpperCase(),account=scope==='GLOBAL'?null:await ensureAccountForCategory(cid,category,direction);await pool.query(`INSERT INTO classification_rules(scope,company_id,pattern,normalized_party,direction,category,account_id,confidence,source) VALUES($1,$2,$3,$3,$4,$5,$6,100,'MANUAL')`,[scope,scope==='GLOBAL'?null:cid,party,direction,category,account?.id||null]);res.json({ok:true})})
 
-app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:'0.8.6',database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:'0.8.6',database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){res.status(503).json({ok:false,version:'0.8.6',database:'migration_failed',message:e.message})}})
+app.get('/api/health',async(req,res)=>{if(!pool)return res.json({ok:true,version:APP_VERSION,database:'not_configured'});try{const r=await pool.query(`SELECT value FROM schema_meta WHERE key='schema_version' LIMIT 1`);res.json({ok:true,version:APP_VERSION,database:'ok',schema:r.rows[0]?.value||'unknown'})}catch(e){req.log.error({err:e},'health');res.status(503).json({ok:false,version:APP_VERSION,database:'unavailable'})}})
 
 const dist=path.resolve(__dirname,'../../client/dist')
 async function start(){
@@ -685,12 +729,29 @@ async function start(){
   await initV080Schema()
   await initV083Schema()
   await initV086Schema()
+  await repairAccountingFlags()
   await ensureMasterUser()
   if(fs.existsSync(dist)){
     await server.register(fastifyStatic,{root:dist,prefix:'/'})
     server.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({message:'Rota não encontrada.'}):reply.sendFile('index.html'))
   }
+  await purgeExpiredSessions()
+  const sessionSweep=setInterval(()=>purgeExpiredSessions().catch(e=>server.log.error({err:e},'session purge')),6*3600*1000)
+  sessionSweep.unref()
   await server.listen({port:PORT,host:'0.0.0.0'})
-  console.log(`Clara BPO v0.8.0 on :${PORT}`)
+  server.log.info(`Clara BPO v${APP_VERSION} on :${PORT}`)
 }
+// Railway envia SIGTERM no redeploy: encerra requisições em andamento e o pool antes de sair.
+let shuttingDown=false
+async function shutdown(signal:string){
+  if(shuttingDown)return
+  shuttingDown=true
+  server.log.info(`${signal} recebido, encerrando...`)
+  const force=setTimeout(()=>process.exit(1),15000);force.unref()
+  try{await server.close();await pool?.end()}catch(e){server.log.error({err:e},'shutdown')}
+  process.exit(0)
+}
+process.on('SIGTERM',()=>shutdown('SIGTERM'))
+process.on('SIGINT',()=>shutdown('SIGINT'))
+
 start().catch(e=>{console.error('Startup failed',e);process.exit(1)})
