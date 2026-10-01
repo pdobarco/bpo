@@ -35,7 +35,7 @@ export async function classify(transaction,companyId,company=null){
     }
 
     const global=await pool.query(`SELECT category,normalized_party,entity_document,confidence,confirmation_count,scope,source FROM classification_rules
-      WHERE scope='GLOBAL' AND (direction=$2 OR direction='ANY') AND (($3::text IS NOT NULL AND entity_document=$3::text) OR $1 LIKE '%'||pattern||'%')
+      WHERE scope='GLOBAL' AND (direction=$2 OR direction='ANY') AND (($3::text IS NOT NULL AND entity_document=$3::text) OR (length(pattern)>=3 AND strpos($1,pattern)>0))
       ORDER BY CASE WHEN $3::text IS NOT NULL AND entity_document=$3::text THEN 0 ELSE 1 END,confidence DESC,confirmation_count DESC,length(pattern) DESC LIMIT 1`,[txt,direction,document])
     if(global.rowCount){const g=global.rows[0],status=Number(g.confidence)>=95||Number(g.confirmation_count)>=3?'AUTO':'SUGGESTED';return resultWithAccount(companyId,{...g,status},party,document)}
   }

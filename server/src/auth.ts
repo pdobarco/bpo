@@ -62,13 +62,19 @@ export async function linkMasterToCompany(companyId: string) {
     ON CONFLICT(user_id,company_id) DO UPDATE SET role='MASTER'`, [master.rows[0].id, companyId])
 }
 
-export async function createSession(userId: string) {
+export async function createSession(userId: string, days = SESSION_DAYS) {
   if (!pool) throw new Error('Banco não configurado')
   const token = crypto.randomBytes(32).toString('base64url')
   const tokenHash = sha256(token)
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 86400000)
+  const expiresAt = new Date(Date.now() + days * 86400000)
   await pool.query(`INSERT INTO auth_sessions(user_id,token_hash,expires_at) VALUES($1,$2,$3)`, [userId, tokenHash, expiresAt])
   return { token, expiresAt }
+}
+
+export async function purgeExpiredSessions() {
+  if (!pool) return 0
+  const r = await pool.query(`DELETE FROM auth_sessions WHERE expires_at<now()`)
+  return r.rowCount || 0
 }
 
 export async function destroySession(token?: string | null) {
