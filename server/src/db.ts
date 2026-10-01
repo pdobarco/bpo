@@ -282,6 +282,9 @@ export async function repairAccountingFlags() {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
+    // Backup dos flags originais antes de qualquer alteração (permite reverter: UPDATE ... FROM backup).
+    await client.query(`CREATE TABLE IF NOT EXISTS backup_v087_transaction_flags AS
+      SELECT id,company_id,accounting_role,status,dre_impact,cash_impact,now() AS backed_up_at FROM transactions`)
     const run = async (sql: string, params: any[] = []) => (await client.query(sql, params)).rowCount || 0
     let changed = 0
     changed += await run(`UPDATE transactions SET dre_impact=false,cash_impact=false WHERE status='IGNORED' AND (dre_impact OR cash_impact)`)
@@ -329,7 +332,10 @@ export async function ensureDefaultChart(companyId) {
 async function seedRules() {
   // Regras globais valem para todas as empresas: padrões curtos ou com curingas de LIKE
   // (ex.: '%') casariam qualquer lançamento e contaminariam a classificação de todos os clientes.
-  await pool.query(`DELETE FROM classification_rules WHERE scope='GLOBAL' AND (length(trim(pattern))<3 OR strpos(pattern,'%')>0)`)
+  // As regras removidas ficam guardadas em backup_v087_global_rules para auditoria/restauração.
+  await pool.query(`CREATE TABLE IF NOT EXISTS backup_v087_global_rules (LIKE classification_rules)`)
+  await pool.query(`WITH removed AS (DELETE FROM classification_rules WHERE scope='GLOBAL' AND (length(trim(pattern))<3 OR strpos(pattern,'%')>0) RETURNING *)
+    INSERT INTO backup_v087_global_rules SELECT * FROM removed`)
   const rules = [
     ['CELESC','CELESC','SAIDA','Energia elétrica',100], ['CASAN','CASAN','SAIDA','Água e saneamento',100],
     ['GOOGLE ADS','GOOGLE ADS','SAIDA','Marketing e anúncios',100], ['SUPERFRETE','SUPERFRETE','SAIDA','Fretes e entregas',100],

@@ -10,6 +10,9 @@ Release de correções de integridade financeira, segurança e qualidade. Não h
 - **Reparo automático, executado uma única vez** (`accounting_flags_repaired_v087` em `schema_meta`): restaura os flags a
   partir do papel contábil de cada lançamento, com as mesmas regras da importação. A quantidade corrigida fica gravada
   no valor da chave e no log.
+- **Backup automático antes de alterar dados:** os flags originais de todos os lançamentos são copiados para
+  `backup_v087_transaction_flags`, e as regras globais removidas para `backup_v087_global_rules`. Para reverter:
+  `UPDATE transactions t SET dre_impact=b.dre_impact,cash_impact=b.cash_impact FROM backup_v087_transaction_flags b WHERE b.id=t.id`.
 - Linhas ignoradas na revisão de arquivo não voltam a impactar o caixa no boot.
 - **Demonstração (`/demonstracao`) voltou a funcionar**: o INSERT dos dados fictícios tinha 13 parâmetros para 12
   placeholders desde a v0.8.1 e retornava erro 500.
