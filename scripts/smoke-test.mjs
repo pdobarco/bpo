@@ -104,6 +104,23 @@ try {
   const crossTenant = await json(`/api/company-accounts/${bank.body.id}`, { method: 'PATCH', headers: demoAuth, body: JSON.stringify({ label: 'Invasão' }) })
   assert.equal(crossTenant.status, 404, 'outra empresa não edita a conta')
 
+  const files = await json('/api/source-files', { headers: auth })
+  const salesFile = files.body.files.find(f => f.name.startsWith('vendas-'))
+  assert.ok(salesFile, 'arquivo de vendas listado')
+  const closed = await json('/api/periods/close', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ period: '2026-09', force: true }) })
+  assert.equal(closed.status, 200, 'fecha setembro')
+  const lockedDelete = await json(`/api/source-files/${salesFile.id}`, { method: 'DELETE', headers: auth })
+  assert.equal(lockedDelete.status, 409, 'não exclui arquivo com lançamentos em mês fechado')
+  const lockedReprocess = await json(`/api/source-files/${salesFile.id}/reprocess`, { method: 'POST', headers: auth })
+  assert.equal(lockedReprocess.status, 409, 'não reprocessa arquivo com lançamentos em mês fechado')
+  const lockedReset = await json('/api/source-files/reset', { method: 'DELETE', headers: auth })
+  assert.equal(lockedReset.status, 409, 'não reseta arquivos com lançamentos em mês fechado')
+  assert.deepEqual(await flags(), before, 'mês fechado continua intacto')
+  const reopened = await json('/api/periods/reopen', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ period: '2026-09' }) })
+  assert.equal(reopened.status, 200, 'reabre setembro')
+  const deleted = await json(`/api/source-files/${salesFile.id}`, { method: 'DELETE', headers: auth })
+  assert.equal(deleted.status, 200, 'exclui o arquivo depois de reabrir o mês')
+
   const notFound = await json('/api/rota-inexistente', { headers: auth })
   assert.equal(notFound.status, 404)
 
