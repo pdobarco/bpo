@@ -1,0 +1,51 @@
+/*
+ * Design tokens da Clara (auditoria de UX, etapa 2).
+ * Fonte única de cores, tipografia, espaçamento, raio e sombra. Novos estilos devem usar estas variáveis;
+ * as camadas antigas de styles.css são migradas aos poucos.
+ */
+:root{
+  /* Marca */
+  --navy:#082a66;--navy2:#061c4c;--blue:#0b5cff;--blue-strong:#0948c7;--cyan:#0fb8e8;--yellow:#ffbf17;
+
+  /* Texto e superfícies */
+  --ink:#0d2a62;--text:#1f2f4d;--muted:#5f6f8c;--line:#dfe6f0;--border:#dfe6f0;--soft:#f6f8fb;--surface:#ffffff;--page:#f7f9fc;
+
+  /* Estados (usar sempre com texto/ícone, nunca só a cor) */
+  --green:#17834f;--green-soft:#e8f6ee;--orange:#b86a00;--orange-soft:#fff4e0;
+  --red:#c63d44;--red-soft:#fdecec;--purple:#6a4bd0;--info-soft:#eaf2ff;
+
+  /* Aliases de variáveis antigas: antes caíam em cinco tons diferentes de fallback */
+  --mock-navy:var(--navy);--mock-blue:var(--blue);--mock-cyan:var(--cyan);--mock-yellow:var(--yellow);
+  --mock-bg:var(--page);--mock-card:var(--surface);--mock-border:var(--border);--mock-text:var(--ink);--mock-muted:var(--muted);
+
+  /* Tipografia — escala única; nada abaixo de 12px */
+  --font:'Inter Variable',Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --fs-xs:12px;--fs-sm:13px;--fs-md:14px;--fs-lg:16px;--fs-xl:20px;--fs-2xl:24px;--fs-3xl:32px;
+
+  /* Espaçamento (base 4px), raio e sombra */
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:24px;--space-6:32px;
+  --radius-sm:6px;--radius-md:10px;--radius-pill:999px;
+  --shadow-1:0 1px 2px rgba(13,42,98,.06);--shadow-2:0 12px 32px rgba(13,42,98,.14);
+
+  /* Foco acessível */
+  --focus-ring:0 0 0 3px rgba(11,92,255,.35);
+
+  font-family:var(--font);
+}
+html,body,#root,button,input,select,textarea{font-family:var(--font)}
+.tabular,.money,.kpi-card strong,.dre-row b,.dre-section b,.dre-result b{font-variant-numeric:tabular-nums}
+
+/* UX-007 — Foco visível para quem navega por teclado (não aparece em clique de mouse). */
+:where(a,button,input,select,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--blue)!important;outline-offset:2px!important;box-shadow:var(--focus-ring)!important}
+.sidebar :where(button,a):focus-visible{outline-color:#fff!important}
+
+/* UX-035 — Rótulos de grupo do menu mais discretos que os itens. */
+.nav-section-label{padding:14px 12px 6px!important;font-size:var(--fs-xs)!important;font-weight:700!important;letter-spacing:.08em!important;color:rgba(255,255,255,.55)!important;text-transform:uppercase}
+
+/* UX-006 — Estado de carregamento padrão para botões assíncronos. */
+button[aria-busy="true"]{cursor:progress;opacity:.75}
+button[aria-busy="true"] .spinner{width:14px;height:14px}
+
+/* Texto apenas para leitores de tela. */
+.sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+button[aria-busy="true"]>svg{display:none}

@@ -17,20 +17,20 @@
 /* UX-001 — Central de conciliação (estilos que existiam apenas no CSS fora do build). */
 .v080-modal{width:min(880px,94vw)}
 .v080-recon-sections{display:grid;gap:26px}
-.v080-recon-sections section h3{margin:0 0 10px;font-size:.95rem}
+.v080-recon-sections section h3{margin:0 0 10px;font-size:var(--fs-lg)}
 .v080-exception{display:grid;grid-template-columns:minmax(240px,1fr) 130px minmax(280px,auto);gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid #edf1f5}
 .v080-exception>div:first-child,.v080-exception>div:nth-child(2):not(.v080-exception-actions){display:flex;flex-direction:column;min-width:0}
-.v080-exception b{font-size:.85rem}
-.v080-exception span{font-size:.75rem;color:#667085}
+.v080-exception b{font-size:var(--fs-sm)}
+.v080-exception span{font-size:var(--fs-sm);color:#667085}
 .v080-exception>strong{text-align:right;white-space:nowrap}
 .v080-exception-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-.v080-ok{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:10px;background:#f4fbf7;color:#216e49;font-size:.82rem}
+.v080-ok{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:10px;background:#f4fbf7;color:#216e49;font-size:var(--fs-sm)}
 .v080-ok svg{width:18px;height:18px;flex-shrink:0}
 .v080-match-list{display:grid;gap:8px}
 .v080-match-list>div{display:grid;grid-template-columns:1fr 24px 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:12px}
 .v080-match-list>div>div{display:flex;flex-direction:column;min-width:0}
 .v080-match-list>div>svg{width:18px;height:18px;opacity:.55}
-.v080-match-list span{font-size:.75rem;color:#667085}
+.v080-match-list span{font-size:var(--fs-sm);color:#667085}
 @media(max-width:1000px){
   .v080-exception{grid-template-columns:1fr auto}
   .v080-exception-actions{grid-column:1/-1;justify-content:flex-start}
@@ -81,3 +81,19 @@
 
 /* UX-013 — O mês já vem formatado ("Outubro de 2026"); capitalize transformava em "Outubro De 2026". */
 .period-control select,.period-control option,.dashboard-period{text-transform:none}
+
+/* Precificação no celular: as colunas tinham largura mínima fixa e, com a fonte de 12px, passavam da tela. */
+@media(max-width:620px){
+  .pricing-layout{grid-template-columns:minmax(0,1fr)!important}
+  .pricing-layout>.card{min-width:0}
+  .pricing-line{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.8fr) 36px!important;gap:6px!important}
+  .pricing-line>*{min-width:0}
+}
+
+/* Etapa 2 — com a fonte mínima de 12px, os controles do cabeçalho não devem quebrar linha. */
+.topbar .quality,.topbar button,.topbar .company-select,.topbar .period-control select{white-space:nowrap}
+.top-welcome{min-width:0;flex:0 1 auto}
+.top-welcome b,.top-welcome span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dashboard-reconciliation .data-table .tr{grid-template-columns:110px minmax(220px,1.4fr) 130px 1fr 100px 115px}
+@media(min-width:621px){.demo-runtime b,.demo-runtime small{white-space:nowrap}}
+@media(max-width:620px){.topbar button{white-space:normal}.demo-runtime small{display:none}}
