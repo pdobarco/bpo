@@ -36,6 +36,8 @@ Release de correções de integridade financeira, segurança e qualidade. Não h
 - Validação de que o Plano de Contas pertence à empresa em Contas a Receber e Despesas Fixas; ignorar em lote só
   aceita lançamentos da própria empresa.
 - Dependências: `fastify` 5.12.5 e `@fastify/static` 10 (corrigem advisories de alta severidade).
+- `xlsx` (SheetJS) 0.18.5 → 0.20.3, instalado do CDN oficial `cdn.sheetjs.com` (a versão do npm parou na 0.18.5 e
+  tem advisories de alta severidade: prototype pollution e ReDoS).
 
 ## Operação e qualidade
 - Encerramento gracioso em `SIGTERM` (redeploy do Railway) fechando servidor e pool do banco.
