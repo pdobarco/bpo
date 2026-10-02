@@ -97,3 +97,61 @@
 .dashboard-reconciliation .data-table .tr{grid-template-columns:110px minmax(220px,1.4fr) 130px 1fr 100px 115px}
 @media(min-width:621px){.demo-runtime b,.demo-runtime small{white-space:nowrap}}
 @media(max-width:620px){.topbar button{white-space:normal}.demo-runtime small{display:none}}
+
+/* UX-005 — Toasts e diálogos de confirmação. */
+.toast-region{position:fixed;right:20px;bottom:20px;z-index:1000;display:grid;gap:10px;width:min(420px,calc(100vw - 32px))}
+.toast{display:grid;grid-template-columns:24px 1fr 24px;gap:10px;align-items:start;padding:12px 14px;border-radius:var(--radius-md);background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-2);color:var(--text);font-size:var(--fs-sm);white-space:pre-line;animation:toast-in .18s ease-out}
+.toast-icon{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;font-weight:800;font-size:var(--fs-xs);color:#fff;background:var(--blue)}
+.toast.success{border-left:4px solid var(--green)}.toast.success .toast-icon{background:var(--green)}
+.toast.error{border-left:4px solid var(--red)}.toast.error .toast-icon{background:var(--red)}
+.toast.warning{border-left:4px solid var(--orange)}.toast.warning .toast-icon{background:var(--orange)}
+.toast.info{border-left:4px solid var(--blue)}
+.toast-text{line-height:1.45;padding-top:2px}
+.toast-close{border:0;background:transparent;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.toast{animation:none}}
+.feedback-dialog{width:min(480px,94vw)}
+.feedback-dialog .modal-head p{white-space:pre-line}
+.feedback-input{display:grid;gap:6px;margin:4px 0 8px}
+.feedback-input span{font-size:var(--fs-xs);font-weight:600;color:var(--muted)}
+.feedback-input input{height:40px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.danger-solid{background:var(--red);color:#fff;border:0;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer}
+.danger-solid:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:620px){.toast-region{right:16px;left:16px;bottom:16px;width:auto}}
+
+/* UX-009 — Zona de risco em Configurações. */
+.danger-tab{color:var(--red)!important}
+.danger-tab.active{background:var(--red-soft)!important;color:var(--red)!important;border-color:#f3c4c6!important}
+.danger-zone{border:1px solid #f3c4c6!important}
+.danger-zone .card-head span{display:block;margin-top:4px;color:var(--muted);font-size:var(--fs-sm)}
+.danger-zone-list{margin:8px 0 14px;padding-left:18px;color:var(--text);font-size:var(--fs-sm);line-height:1.6}
+.danger-solid{display:inline-flex;align-items:center;gap:8px}
+.danger-solid svg{width:16px;height:16px}
+.muted-note{color:var(--muted);font-size:var(--fs-sm);margin:8px 0 0}
+
+/* UX-012 — Ação principal + menu "Mais" nas linhas. */
+.more-menu{position:relative;display:inline-block}
+.more-menu-trigger{min-width:36px;font-size:18px!important;line-height:1;padding:6px 10px!important}
+.more-menu-list{position:absolute;right:0;top:calc(100% + 6px);z-index:60;min-width:200px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-2);display:grid;gap:2px}
+.more-menu-list button{border:0;background:transparent;text-align:left;padding:9px 12px;border-radius:var(--radius-sm);font-size:var(--fs-sm);color:var(--text);cursor:pointer}
+.more-menu-list button:hover,.more-menu-list button:focus-visible{background:var(--soft)}
+.more-menu-list button.danger{color:var(--red)}
+.row-primary{border:1px solid #c9d8f5!important;background:#f3f7ff!important;color:var(--blue-strong)!important;box-shadow:none!important}
+.row-primary:hover{background:#e7efff!important}
+.suggested-tag{margin-left:8px;padding:2px 8px;border-radius:var(--radius-pill);background:var(--info-soft);color:var(--blue-strong);font-style:normal;font-size:var(--fs-xs);font-weight:600}
+
+/* UX-030 — Campos obrigatórios. */
+.req{color:var(--red);text-decoration:none;margin-left:3px;font-weight:700;cursor:help}
+.form-hint{margin:2px 0 0;color:var(--muted);font-size:var(--fs-xs)}
+
+/* UX-030 — Campos obrigatórios. */
+.req{color:var(--red);text-decoration:none;margin-left:3px;font-weight:700;cursor:help}
+.form-hint{margin:2px 0 0;color:var(--muted);font-size:var(--fs-xs)}
+.form-grid .span2{grid-column:1/-1}
+.section-toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+.row-actions{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+
+/* UX-032 — Perfil somente leitura explicado, em vez de botões apagados sem motivo. */
+.readonly-chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--radius-pill);background:var(--soft);border:1px solid var(--border);color:var(--muted);font-size:var(--fs-xs);font-weight:600;white-space:nowrap;cursor:help}
+.readonly-chip svg{width:14px;height:14px}
+button:disabled{cursor:not-allowed}
