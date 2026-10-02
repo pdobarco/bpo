@@ -1,7 +1,10 @@
 import { z } from 'zod'
 
+// Só para migrar sessões antigas: a sessão agora fica num cookie httpOnly definido pelo servidor.
 export const TOKEN_KEY='clara_token'
 export const COMPANY_KEY='clara_company_id'
+// Marca, por aba, que a demonstração está aberta; o servidor usa o cookie da demo.
+export const DEMO_MODE_KEY='clara_mode'
 
 const nullableString=z.string().nullable().optional()
 export const transactionRowSchema=z.object({
@@ -18,11 +21,18 @@ export type TransactionsResponse=z.infer<typeof transactionsResponseSchema>
 
 export async function apiFetch(input:RequestInfo|URL,init:RequestInit={}){
   const headers=new Headers(init.headers||{})
-  const token=localStorage.getItem(TOKEN_KEY)
   const companyId=localStorage.getItem(COMPANY_KEY)
-  if(token)headers.set('Authorization',`Bearer ${token}`)
   if(companyId)headers.set('x-company-id',companyId)
-  return fetch(input,{...init,headers})
+  if(sessionStorage.getItem(DEMO_MODE_KEY)==='demo')headers.set('x-clara-mode','demo')
+  return fetch(input,{...init,headers,credentials:'same-origin'})
+}
+
+// Troca um token antigo do localStorage pelo cookie httpOnly e apaga o token do navegador.
+export async function adoptLegacySession(){
+  const token=localStorage.getItem(TOKEN_KEY)
+  if(!token)return
+  localStorage.removeItem(TOKEN_KEY)
+  await fetch('/api/auth/adopt-session',{method:'POST',headers:{Authorization:`Bearer ${token}`},credentials:'same-origin'}).catch(()=>{})
 }
 
 export async function readError(response:Response){
