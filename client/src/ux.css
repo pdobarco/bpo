@@ -1,0 +1,83 @@
+/*
+ * Correções de layout da auditoria de UX (v0.8.8).
+ * Importado por último em main.tsx para prevalecer sobre as camadas antigas de styles.css.
+ */
+
+/* UX-001 — Listas de Contas a Pagar, Contas a Receber e Próximos movimentos.
+   As colunas eram definidas em v082.css, mas o grid-base só existia num CSS que nunca entrou no build. */
+.v082-payables,.v082-receivables,.v082-upcoming{display:grid}
+.v082-payables .tr,.v082-receivables .tr,.v082-upcoming .tr{display:grid;gap:12px;padding:10px 12px;border-top:1px solid #edf1f5}
+.v082-payables .tr.head,.v082-receivables .tr.head,.v082-upcoming .tr.head{border-top:0;border-radius:8px}
+.v082-payables .tr>div,.v082-receivables .tr>div,.v082-upcoming .tr>div{min-width:0}
+.v082-payables .tr>div b,.v082-receivables .tr>div b,.v082-upcoming .tr>div b{display:block;overflow:hidden;text-overflow:ellipsis}
+.v082-payables .tr>strong,.v082-receivables .tr>strong,.v082-upcoming .tr>strong{text-align:right;white-space:nowrap}
+.v082-payables .tr.head>b:nth-last-child(2),.v082-receivables .tr.head>b:nth-last-child(2),.v082-upcoming .tr.head>b:last-child{text-align:right}
+.v082-payables .tr>.pill,.v082-receivables .tr>.pill,.v082-upcoming .tr>.pill{justify-self:start}
+
+/* UX-001 — Central de conciliação (estilos que existiam apenas no CSS fora do build). */
+.v080-modal{width:min(880px,94vw)}
+.v080-recon-sections{display:grid;gap:26px}
+.v080-recon-sections section h3{margin:0 0 10px;font-size:.95rem}
+.v080-exception{display:grid;grid-template-columns:minmax(240px,1fr) 130px minmax(280px,auto);gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid #edf1f5}
+.v080-exception>div:first-child,.v080-exception>div:nth-child(2):not(.v080-exception-actions){display:flex;flex-direction:column;min-width:0}
+.v080-exception b{font-size:.85rem}
+.v080-exception span{font-size:.75rem;color:#667085}
+.v080-exception>strong{text-align:right;white-space:nowrap}
+.v080-exception-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.v080-ok{display:flex;align-items:center;gap:8px;padding:12px 14px;border-radius:10px;background:#f4fbf7;color:#216e49;font-size:.82rem}
+.v080-ok svg{width:18px;height:18px;flex-shrink:0}
+.v080-match-list{display:grid;gap:8px}
+.v080-match-list>div{display:grid;grid-template-columns:1fr 24px 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:12px}
+.v080-match-list>div>div{display:flex;flex-direction:column;min-width:0}
+.v080-match-list>div>svg{width:18px;height:18px;opacity:.55}
+.v080-match-list span{font-size:.75rem;color:#667085}
+@media(max-width:1000px){
+  .v080-exception{grid-template-columns:1fr auto}
+  .v080-exception-actions{grid-column:1/-1;justify-content:flex-start}
+}
+@media(max-width:640px){
+  .v080-exception{grid-template-columns:1fr}
+  .v080-exception>strong{text-align:left}
+  .v080-match-list>div{grid-template-columns:1fr}
+  .v080-match-list>div>svg{transform:rotate(90deg)}
+}
+
+/* UX-003 — A navegação rola e o rodapé (usuário + Sair) fica sempre visível,
+   mesmo com o grupo Administração em telas de notebook. */
+.sidebar{min-height:0}
+.sidebar nav{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.sidebar-bottom{flex-shrink:0}
+
+/* UX-018 — Histórico de arquivos: as linhas são <button> e herdavam a borda e o fundo padrão do navegador. */
+.file-list .file-row{width:100%;background:transparent;border:0;border-bottom:1px solid #edf1f5;border-radius:0;text-align:left;font:inherit;color:inherit;cursor:pointer;box-shadow:none}
+.file-list .file-row:hover{background:#f8fbff}
+.file-list .file-row:last-child{border-bottom:0}
+
+/* UX-002 — Cabeçalho no celular: quebra em duas linhas em vez de empurrar a página para os lados. */
+@media(max-width:620px){
+  .topbar{flex-wrap:wrap;row-gap:8px;padding:8px 12px;min-height:0}
+  .topbar>*{min-width:0}
+  .top-controls{flex:1 1 100%;min-width:0;margin-left:0}
+  .top-controls .company-select,.top-controls .period-control,.top-controls .period-control select{min-width:0;width:100%;max-width:none}
+  .topbar .demo-notice,.topbar [class*="demo"]{flex:1 1 0;min-width:0}
+  .app-main,.page-content{min-width:0;max-width:100vw}
+}
+@media(max-width:900px){
+  .dashboard-grid,.dashboard-grid.premium-grid{grid-template-columns:minmax(0,1fr)!important}
+  .dashboard-grid>.card{min-width:0}
+}
+@media(max-width:620px){
+  .kpi-grid,.kpi-grid.compact,.kpi-grid.executive{grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important}
+  .kpi-grid .kpi-card{min-width:0}
+  .kpi-grid .kpi-card strong{font-size:1.05rem;overflow-wrap:anywhere}
+  .dre-row,.dre-section,.dre-result{grid-template-columns:minmax(0,1fr) auto!important;min-width:0}
+  .dre-row>*,.dre-section>*,.dre-result>*{min-width:0}
+  .bulk-toolbar,.bulk-actions-v086{flex-wrap:wrap;min-width:0;max-width:100%}
+  .bulk-actions-v086>*{min-width:0;max-width:100%}
+}
+@media(max-width:420px){
+  .kpi-grid,.kpi-grid.compact,.kpi-grid.executive{grid-template-columns:minmax(0,1fr)!important}
+}
+
+/* UX-013 — O mês já vem formatado ("Outubro de 2026"); capitalize transformava em "Outubro De 2026". */
+.period-control select,.period-control option,.dashboard-period{text-transform:none}

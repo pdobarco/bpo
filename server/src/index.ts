@@ -708,7 +708,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   let aiUpdated=0
   try{if(process.env.AI_ENABLED==='true'){const r=await runLunaForPending(cid);aiUpdated=r.updated||0}}catch(e){console.error('automatic Luna',e)}
   const review=(await getReviewGroups(cid)).length,extras=[]
-  if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram o Clara`)
+  if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram a Clara`)
   if(globalShared)extras.push(`${globalShared} classificação(ões) alimentaram a biblioteca compartilhada`)
   if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`)
 
