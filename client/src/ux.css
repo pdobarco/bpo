@@ -155,3 +155,39 @@
 .readonly-chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--radius-pill);background:var(--soft);border:1px solid var(--border);color:var(--muted);font-size:var(--fs-xs);font-weight:600;white-space:nowrap;cursor:help}
 .readonly-chip svg{width:14px;height:14px}
 button:disabled{cursor:not-allowed}
+
+/* Etapa 4 — Prontidão do mês (UX-008) e primeiros passos (UX-011). */
+.top-controls{margin-left:auto}
+button.quality{border:1px solid transparent;cursor:pointer;font:inherit;font-weight:700}
+button.quality:hover{filter:brightness(.97);border-color:currentColor}
+.readiness-card{margin-bottom:16px}
+.readiness-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.readiness-list li{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--radius-md);background:var(--orange-soft);border:1px solid #f5dcae}
+.readiness-list li.info{background:var(--info-soft);border-color:#cfe0ff}
+.readiness-list li>svg{width:20px;height:20px;color:var(--orange)}
+.readiness-list li.info>svg{color:var(--blue-strong)}
+.readiness-list li b{display:block;font-size:var(--fs-md);color:var(--text)}
+.readiness-list li span{display:block;font-size:var(--fs-sm);color:var(--muted);margin-top:2px}
+.readiness-list.compact li{padding:8px 12px}
+.readiness-ok{display:grid;grid-template-columns:22px 1fr auto;gap:12px;align-items:center;padding:14px;border-radius:var(--radius-md);background:var(--green-soft);color:var(--green)}
+.readiness-ok svg{width:20px;height:20px}
+.readiness-ok b{display:block;color:var(--text)}
+.readiness-ok span{display:block;font-size:var(--fs-sm);color:var(--muted)}
+.readiness-modal{width:min(640px,94vw)}
+.closing-card .readiness-list{margin-top:12px}
+.onboarding .card-head span{display:block;margin-top:4px;color:var(--muted);font-size:var(--fs-sm)}
+.onboarding-steps{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+.onboarding-steps li{display:grid;grid-template-columns:32px 1fr auto;gap:14px;align-items:center;padding:14px;border:1px solid var(--border);border-radius:var(--radius-md)}
+.onboarding-steps li.done{background:var(--soft)}
+.onboarding-steps li.done b{color:var(--muted)}
+.step-mark{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--info-soft);color:var(--blue-strong);font-weight:800}
+.onboarding-steps li.done .step-mark{background:var(--green-soft);color:var(--green)}
+.step-mark svg{width:18px;height:18px}
+.onboarding-steps b{display:block;font-size:var(--fs-md);color:var(--text)}
+.onboarding-steps li>div>span{display:block;font-size:var(--fs-sm);color:var(--muted);margin-top:2px}
+@media(max-width:620px){
+  .readiness-list li,.readiness-ok{grid-template-columns:22px 1fr}
+  .readiness-list li>button,.readiness-ok>button{grid-column:2;justify-self:start}
+  .onboarding-steps li{grid-template-columns:32px 1fr}
+  .onboarding-steps li>button,.onboarding-steps li>.pill{grid-column:2;justify-self:start}
+}
