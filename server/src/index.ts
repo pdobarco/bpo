@@ -67,6 +67,7 @@ const bodySchemas: Record<string, any> = {
   'POST /api/reconciliation/mark-transfer': z.object({transactionId:z.string().uuid()}),
   'POST /api/reconciliation/ignore': z.object({transactionId:z.string().uuid(),reason:z.string().max(500).optional()}).passthrough(),
   'POST /api/company-accounts': z.object({label:z.string().min(1),institution:z.string().optional(),document:z.string().optional(),bankCode:z.string().optional(),agency:z.string().optional(),account:z.string().optional(),aliases:z.array(z.string()).optional()}).passthrough(),
+  'PATCH /api/company-accounts/:id': z.object({label:z.string().trim().min(1).max(120),institution:z.string().max(120).optional(),document:z.string().max(40).optional(),bankCode:z.string().max(20).optional(),agency:z.string().max(20).optional(),account:z.string().max(40).optional()}),
   'POST /api/expected-sources': z.object({kind:z.string().min(1),label:z.string().min(1),active:z.boolean().optional()}).passthrough(),
   'POST /api/periods/close': z.object({period:z.string().regex(/^\d{4}-\d{2}$/),force:z.boolean().optional()}).passthrough(),
   'POST /api/periods/reopen': z.object({period:z.string().regex(/^\d{4}-\d{2}$/)}).passthrough(),
@@ -466,6 +467,7 @@ app.delete('/api/chart-accounts/:id',async(req,res)=>{if(!pool)return res.status
 
 app.get('/api/company-accounts',async(req,res)=>{if(!pool)return res.json([]);res.json(await getCompanyAccounts(req.companyId))})
 app.post('/api/company-accounts',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{label,institution,document,bankCode,agency,account,aliases=[]}=req.body;if(!label)return res.status(400).json({message:'Informe um nome para a conta.'});const r=await pool.query(`INSERT INTO company_accounts(company_id,label,institution,document,bank_code,agency,account,aliases) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb) RETURNING id,label,institution,document,bank_code,agency,account,aliases,active`,[cid,label,institution||null,document||null,bankCode||null,agency||null,account||null,JSON.stringify(Array.isArray(aliases)?aliases:[])]);await auditSafe(cid,'COMPANY_ACCOUNT_CREATED','company_account',r.rows[0].id,r.rows[0]);res.json(r.rows[0])})
+app.patch('/api/company-accounts/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId,{label,institution,document,bankCode,agency,account}=req.body;const r=await pool.query(`UPDATE company_accounts SET label=$3,institution=$4,document=$5,bank_code=$6,agency=$7,account=$8 WHERE id=$1 AND company_id=$2 AND active=true RETURNING id,label,institution,document,bank_code,agency,account,aliases,active`,[req.params.id,cid,label,institution||null,document||null,bankCode||null,agency||null,account||null]);if(!r.rowCount)return res.status(404).json({message:'Conta não encontrada.'});await auditSafe(cid,'COMPANY_ACCOUNT_UPDATED','company_account',req.params.id,r.rows[0]);res.json(r.rows[0])})
 app.delete('/api/company-accounts/:id',async(req,res)=>{if(!pool)return res.status(503).json({message:'Banco não configurado'});const cid=req.companyId;await pool.query(`UPDATE company_accounts SET active=false WHERE id=$1 AND company_id=$2`,[req.params.id,cid]);res.json({ok:true})})
 
 
@@ -708,7 +710,7 @@ app.post('/api/import',upload.array('files',100),async(req,res)=>{
   let aiUpdated=0
   try{if(process.env.AI_ENABLED==='true'){const r=await runLunaForPending(cid);aiUpdated=r.updated||0}}catch(e){console.error('automatic Luna',e)}
   const review=(await getReviewGroups(cid)).length,extras=[]
-  if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram o Clara`)
+  if(supplierLearned)extras.push(`${supplierLearned} fornecedor(es) ensinaram a Clara`)
   if(globalShared)extras.push(`${globalShared} classificação(ões) alimentaram a biblioteca compartilhada`)
   if(newAccounts)extras.push(`${newAccounts} nova(s) conta(s) foram adicionadas ao Plano de Contas`)
 

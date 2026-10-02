@@ -18,6 +18,8 @@ const BASE = `http://127.0.0.1:${PORT}`
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), MASTER_EMAIL: 'master@smoke.test', MASTER_INITIAL_PASSWORD: 'smoke-master-123', AI_ENABLED: 'false', TRUST_PROXY: 'false' }
 
 async function startServer() {
+  const busy = await fetch(`${BASE}/api/health`).then(() => true, () => false)
+  if (busy) throw new Error(`A porta ${PORT} já está em uso por outro processo; defina SMOKE_PORT ou encerre-o.`)
   const child = spawn(process.execPath, ['dist/index.js'], { cwd: path.join(root, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''
   child.stdout.on('data', d => { log += d })
@@ -86,8 +88,21 @@ try {
   const wildcard = await json('/api/classification-rules', { method: 'POST', headers: demoAuth, body: JSON.stringify({ pattern: '%', category: 'X' }) })
   assert.equal(wildcard.status, 400, 'curingas são rejeitados')
 
+  const flow = await json('/api/cash-flow-v080', { headers: { authorization: `Bearer ${demo.body.token}` } })
+  const dueDates = (flow.body.upcoming || []).map(x => String(x.due_date || '9999').slice(0, 10))
+  assert.ok(dueDates.length > 1, 'fluxo de caixa da demo tem próximos movimentos')
+  assert.deepEqual(dueDates, [...dueDates].sort(), 'próximos movimentos em ordem cronológica')
+
   const reset = await json('/api/source-files/reset', { method: 'DELETE', headers: { authorization: `Bearer ${demo.body.token}` } })
   assert.notEqual(reset.status, 500, 'reset não deve falhar com erro interno')
+
+  const jsonHeaders = { ...auth, 'content-type': 'application/json' }
+  const bank = await json('/api/company-accounts', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ label: 'Conta teste', institution: 'Banco X' }) })
+  assert.equal(bank.status, 200, 'cria conta bancária')
+  const edited = await json(`/api/company-accounts/${bank.body.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ label: 'Conta renomeada', institution: 'Banco Y' }) })
+  assert.equal(edited.body.label, 'Conta renomeada', 'edita conta bancária')
+  const crossTenant = await json(`/api/company-accounts/${bank.body.id}`, { method: 'PATCH', headers: demoAuth, body: JSON.stringify({ label: 'Invasão' }) })
+  assert.equal(crossTenant.status, 404, 'outra empresa não edita a conta')
 
   const notFound = await json('/api/rota-inexistente', { headers: auth })
   assert.equal(notFound.status, 404)
