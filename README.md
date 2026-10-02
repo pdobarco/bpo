@@ -63,13 +63,17 @@ A migration `server/drizzle/0004_operational_v070.sql` adiciona o modelo de **Co
 O bootstrap do banco permanece idempotente e atualiza `schema_meta` para `0.7.0`.
 
 ## Validação
-Antes da publicação, a branch de release executa automaticamente:
+Toda mudança entra por pull request para a `main`. O workflow `CI` (`.github/workflows/ci.yml`) roda em cada PR e na `main`:
 
 ```bash
 npm run install:all
 npm run typecheck
+npm test
 npm run build
+node scripts/smoke-test.mjs   # com um PostgreSQL descartável em DATABASE_URL
 ```
+
+Só faça merge com o CI verde. O Railway publica automaticamente a `main`.
 
 Checklist funcional: `docs/teste-aceite-v0.7.0.md`.
 
