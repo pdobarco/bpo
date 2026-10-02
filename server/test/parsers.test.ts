@@ -48,3 +48,14 @@ test('parseSupplierBase reconhece base de fornecedores e valida documento', () =
 test('parseSupplierBase ignora planilhas que não são base de fornecedores', () => {
   assert.equal(parseSupplierBase(workbook([['Data', 'Valor'], ['01/01/2026', 10]])).matched, false)
 })
+
+test('parseTabular preserva o dia de células de data em xlsx, xls e csv', () => {
+  const ws = XLSX.utils.aoa_to_sheet([['Data', 'Descrição', 'Valor'], [new Date(2026, 8, 5), 'Venda', 100], [new Date(2026, 11, 31), 'Tarifa', -2.5]], { cellDates: true })
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'P')
+  const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  for (const bookType of ['xlsx', 'biff8', 'csv'] as const) {
+    const parsed = parseTabular(XLSX.write(wb, { type: 'buffer', bookType }))
+    assert.deepEqual(parsed.transactions.map((t: any) => day(new Date(t.occurredAt))), ['2026-09-05', '2026-12-31'], bookType)
+  }
+})
