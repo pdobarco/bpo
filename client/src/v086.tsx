@@ -21,5 +21,5 @@ export function FilteredBulkClassifyV086({period,filters,total,chartAccounts,can
     }catch(e:any){notifyError(e.message||'Não foi possível alterar os lançamentos filtrados.')}finally{setWorking(false)}
   }
   if(!canWrite||!total)return null
-  return <div className="filtered-bulk-v086"><select value={accountId} disabled={busy||working} onChange={e=>setAccountId(e.target.value)}><option value="">Plano de Contas para todos...</option>{accounts.map((a:any)=><option key={a.id} value={a.id}>{a.code?`${a.code} · `:''}{a.name}</option>)}</select><button className="secondary small" disabled={!accountId||busy||working} onClick={apply}><Check/>Alterar todos os filtrados ({total})</button></div>
+  return <div className="filtered-bulk-v086"><select aria-label="Plano de contas para os filtrados" value={accountId} disabled={busy||working} onChange={e=>setAccountId(e.target.value)}><option value="">Plano de Contas para todos...</option>{accounts.map((a:any)=><option key={a.id} value={a.id}>{a.code?`${a.code} · `:''}{a.name}</option>)}</select><button className="secondary small" disabled={!accountId||busy||working} onClick={apply}><Check/>Alterar todos os filtrados ({total})</button></div>
 }

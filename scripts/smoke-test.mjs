@@ -96,6 +96,14 @@ try {
   const reset = await json('/api/source-files/reset', { method: 'DELETE', headers: { authorization: `Bearer ${demo.body.token}` } })
   assert.notEqual(reset.status, 500, 'reset não deve falhar com erro interno')
 
+  const jsonHeaders = { ...auth, 'content-type': 'application/json' }
+  const bank = await json('/api/company-accounts', { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ label: 'Conta teste', institution: 'Banco X' }) })
+  assert.equal(bank.status, 200, 'cria conta bancária')
+  const edited = await json(`/api/company-accounts/${bank.body.id}`, { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ label: 'Conta renomeada', institution: 'Banco Y' }) })
+  assert.equal(edited.body.label, 'Conta renomeada', 'edita conta bancária')
+  const crossTenant = await json(`/api/company-accounts/${bank.body.id}`, { method: 'PATCH', headers: demoAuth, body: JSON.stringify({ label: 'Invasão' }) })
+  assert.equal(crossTenant.status, 404, 'outra empresa não edita a conta')
+
   const notFound = await json('/api/rota-inexistente', { headers: auth })
   assert.equal(notFound.status, 404)
 
