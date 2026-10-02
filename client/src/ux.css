@@ -191,3 +191,19 @@ button.quality:hover{filter:brightness(.97);border-color:currentColor}
   .onboarding-steps li{grid-template-columns:32px 1fr}
   .onboarding-steps li>button,.onboarding-steps li>.pill{grid-column:2;justify-self:start}
 }
+
+/* UX-036 — Menu mobile com fundo escurecido; toque fora fecha. */
+.sidebar-backdrop{display:none}
+@media(max-width:900px){.sidebar-backdrop{display:block;position:fixed;inset:0;z-index:49;background:rgba(6,28,76,.45)}}
+
+/* UX-022 — DRE com drill-down e tabela usando a largura do card. */
+.dre-card .dre-section,.dre-card .dre-row,.dre-card .dre-result{grid-template-columns:minmax(0,1fr) 180px}
+button.dre-row-link{width:100%;border:0;border-top:1px solid #f0f3f7;background:transparent;font:inherit;text-align:left;cursor:pointer}
+button.dre-row-link:hover{background:var(--info-soft)}
+button.dre-row-link span{color:var(--blue-strong);text-decoration:underline;text-decoration-color:rgba(9,72,199,.3);text-underline-offset:3px}
+.filter-chip{display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;padding:6px 6px 6px 12px;border-radius:var(--radius-pill);background:var(--info-soft);border:1px solid #cfe0ff;color:var(--text);font-size:var(--fs-sm)}
+.filter-chip button{display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:50%;background:transparent;color:var(--muted);cursor:pointer}
+.filter-chip button:hover{background:#dbe7ff}
+.filter-chip svg{width:14px;height:14px}
+.range-modal{width:min(520px,94vw)}
+.account-card{grid-template-columns:auto 1fr auto!important}
