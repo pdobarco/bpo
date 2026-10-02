@@ -41,8 +41,10 @@ async function stopServer(child) {
 
 const json = async (url, init = {}) => {
   const res = await fetch(`${BASE}${url}`, init)
-  return { status: res.status, body: await res.json().catch(() => ({})) }
+  return { status: res.status, headers: res.headers, body: await res.json().catch(() => ({})) }
 }
+// Devolve "nome=valor" do Set-Cookie, para reenviar como cabeçalho Cookie.
+const cookieFrom = res => String(res.headers.get('set-cookie') || '').split(';')[0]
 
 function salesWorkbook() {
   const wb = XLSX.utils.book_new()
@@ -62,7 +64,12 @@ let server = await startServer()
 try {
   const login = await json('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: env.MASTER_EMAIL, password: env.MASTER_INITIAL_PASSWORD }) })
   assert.equal(login.status, 200, 'login master')
-  const auth = { authorization: `Bearer ${login.body.token}` }
+  assert.equal(login.body.token, undefined, 'o token não aparece no corpo da resposta')
+  const setCookie = login.headers.get('set-cookie') || ''
+  assert.match(setCookie, /^clara_session=[^;]+;.*HttpOnly/, 'login define cookie httpOnly')
+  assert.match(setCookie, /SameSite=Strict/, 'cookie com SameSite=Strict')
+  const auth = { cookie: cookieFrom(login) }
+  assert.equal((await json('/api/auth/me', { headers: auth })).status, 200, 'cookie autentica')
 
   const form = new FormData()
   form.append('files', new Blob([salesWorkbook()]), `vendas-${Date.now()}.xlsx`)
@@ -82,18 +89,24 @@ try {
 
   const demo = await json('/api/demo/session')
   assert.equal(demo.status, 200, 'sessão de demonstração')
-  const demoAuth = { authorization: `Bearer ${demo.body.token}`, 'content-type': 'application/json' }
+  const demoCookie = cookieFrom(demo)
+  assert.match(demoCookie, /^clara_demo=/, 'demo usa cookie próprio')
+  const demoHeaders = { cookie: `${auth.cookie}; ${demoCookie}`, 'x-clara-mode': 'demo' }
+  const demoMe = await json('/api/auth/me', { headers: demoHeaders })
+  assert.equal(demoMe.body.user?.email, 'demo@clara.local', 'modo demo usa a sessão da demo')
+  assert.equal((await json('/api/auth/me', { headers: { cookie: `${auth.cookie}; ${demoCookie}` } })).body.user?.email, env.MASTER_EMAIL, 'sem o modo demo vale a sessão real')
+  const demoAuth = { ...demoHeaders, 'content-type': 'application/json' }
   const globalRule = await json('/api/classification-rules', { method: 'POST', headers: demoAuth, body: JSON.stringify({ pattern: 'FORNECEDOR', category: 'Retirada do sócio', scope: 'GLOBAL' }) })
   assert.equal(globalRule.status, 403, 'demo não cria regra global')
   const wildcard = await json('/api/classification-rules', { method: 'POST', headers: demoAuth, body: JSON.stringify({ pattern: '%', category: 'X' }) })
   assert.equal(wildcard.status, 400, 'curingas são rejeitados')
 
-  const flow = await json('/api/cash-flow-v080', { headers: { authorization: `Bearer ${demo.body.token}` } })
+  const flow = await json('/api/cash-flow-v080', { headers: demoHeaders })
   const dueDates = (flow.body.upcoming || []).map(x => String(x.due_date || '9999').slice(0, 10))
   assert.ok(dueDates.length > 1, 'fluxo de caixa da demo tem próximos movimentos')
   assert.deepEqual(dueDates, [...dueDates].sort(), 'próximos movimentos em ordem cronológica')
 
-  const reset = await json('/api/source-files/reset', { method: 'DELETE', headers: { authorization: `Bearer ${demo.body.token}` } })
+  const reset = await json('/api/source-files/reset', { method: 'DELETE', headers: demoHeaders })
   assert.notEqual(reset.status, 500, 'reset não deve falhar com erro interno')
 
   const jsonHeaders = { ...auth, 'content-type': 'application/json' }
@@ -106,6 +119,17 @@ try {
 
   const notFound = await json('/api/rota-inexistente', { headers: auth })
   assert.equal(notFound.status, 404)
+
+  // Transição: um token antigo vira cookie; depois do logout a sessão deixa de valer.
+  const second = await json('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: env.MASTER_EMAIL, password: env.MASTER_INITIAL_PASSWORD }) })
+  const token = cookieFrom(second).split('=')[1]
+  const adopted = await json('/api/auth/adopt-session', { method: 'POST', headers: { authorization: `Bearer ${token}` } })
+  assert.equal(adopted.status, 200, 'token antigo é trocado pelo cookie')
+  assert.equal(cookieFrom(adopted), `clara_session=${token}`, 'cookie traz a mesma sessão')
+  const out = await json('/api/auth/logout', { method: 'POST', headers: { cookie: cookieFrom(adopted) } })
+  assert.match(out.headers.get('set-cookie') || '', /^clara_session=;.*Max-Age=0/, 'logout apaga o cookie')
+  assert.equal((await json('/api/auth/me', { headers: { cookie: cookieFrom(adopted) } })).status, 401, 'sessão encerrada no logout')
+  assert.equal((await json('/api/auth/me', { headers: auth })).status, 200, 'logout de uma sessão não derruba a outra')
 
   console.log('smoke-test: OK')
 } finally {

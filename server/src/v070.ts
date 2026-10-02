@@ -3,7 +3,7 @@ import path from 'node:path'
 import * as XLSX from 'xlsx'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { pool, getCompany, ensureDefaultChart, findAccountByName, getChartAccounts } from './db.js'
-import { createSession, authPayload, hashPassword } from './auth.js'
+import { createSession, authPayload, hashPassword, sessionCookie, DEMO_COOKIE_NAME } from './auth.js'
 import { parsePdf } from './parsers/pdf.js'
 import { parseTabular } from './parsers/tabular.js'
 import { classify } from './services/classify.js'
@@ -141,6 +141,6 @@ export function registerV070Routes(app:any){
 
   app.get('/api/presentations/:kind/pdf',async(req:any,res:any)=>{const kind=String(req.params.kind||'').toLowerCase();if(!['weekly','monthly'].includes(kind))return res.status(404).json({message:'Tipo de apresentação inválido.'});const data=await presentationData(req.companyId,kind,req.query||{}),buffer=await buildPdf(data),filename=kind==='weekly'?'clara-apresentacao-semanal.pdf':'clara-apresentacao-mensal.pdf';res.header('Content-Type','application/pdf').header('Content-Disposition',`attachment; filename="${filename}"`).send(buffer)})
 
-  app.get('/api/demo/session',async(_req:any,res:any)=>{if(!pool)return res.status(503).json({message:'Banco não configurado.'});const demo=await ensureDemo(),session=await createSession(demo.user.id,1),payload=await authPayload(demo.user);res.json({token:session.token,expiresAt:session.expiresAt,...payload})})
+  app.get('/api/demo/session',async(_req:any,res:any)=>{if(!pool)return res.status(503).json({message:'Banco não configurado.'});const demo=await ensureDemo(),session=await createSession(demo.user.id,1),payload=await authPayload(demo.user);res.header('set-cookie',sessionCookie(_req,DEMO_COOKIE_NAME,session.token,session.expiresAt));res.json({expiresAt:session.expiresAt,...payload})})
   app.post('/api/demo/reset',async(req:any,res:any)=>{if(!pool)return res.status(503).json({message:'Banco não configurado.'});const c=await pool.query(`SELECT is_demo FROM companies WHERE id=$1 LIMIT 1`,[req.companyId]);if(!c.rows[0]?.is_demo)return res.status(403).json({message:'A restauração só existe no ambiente de demonstração.'});await resetDemo(req.companyId);res.json({ok:true,message:'Dados fictícios restaurados.'})})
 }
