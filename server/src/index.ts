@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { initDb,repairAccountingFlags,pool,getCompany,getCompanyAccounts,getChartAccounts,findAccountByName,DRE_SECTIONS,audit,ensureDefaultChart } from './db.js'
-import { authenticateRequest,authPayload,bearerToken,createSession,destroySession,purgeExpiredSessions,ensureMasterUser,hashPassword,linkMasterToCompany,masterEmail,resolveCompanyId,userCompanies,verifyPassword } from './auth.js'
+import { authenticateRequest,authPayload,bearerToken,clearSessionCookie,sessionCookie,sessionExpiry,sessionToken,SESSION_COOKIE_NAME,createSession,destroySession,purgeExpiredSessions,ensureMasterUser,hashPassword,linkMasterToCompany,masterEmail,resolveCompanyId,userCompanies,verifyPassword } from './auth.js'
 import { parsePdf } from './parsers/pdf.js'
 import { parseTabular } from './parsers/tabular.js'
 import { parseSupplierBase } from './parsers/suppliers.js'
@@ -380,7 +380,8 @@ app.post('/api/auth/login',async(req,res)=>{
   const session=await createSession(user.id)
   await pool.query(`UPDATE users SET last_login_at=now(),updated_at=now() WHERE id=$1`,[user.id])
   const payload=await authPayload({id:user.id,email:user.email,name:user.name,role:user.role,status:user.status})
-  res.json({token:session.token,expiresAt:session.expiresAt,...payload})
+  res.header('set-cookie',sessionCookie(req,SESSION_COOKIE_NAME,session.token,session.expiresAt))
+  res.json({expiresAt:session.expiresAt,...payload})
 })
 app.post('/api/auth/register',async(req,res)=>{
   if(!pool)return res.status(503).json({message:'Banco não configurado.'})
@@ -399,11 +400,14 @@ app.post('/api/auth/register',async(req,res)=>{
     await linkMasterToCompany(company.rows[0].id)
     const session=await createSession(user.rows[0].id)
     const payload=await authPayload(user.rows[0])
-    res.json({token:session.token,expiresAt:session.expiresAt,...payload})
+    res.header('set-cookie',sessionCookie(req,SESSION_COOKIE_NAME,session.token,session.expiresAt))
+    res.json({expiresAt:session.expiresAt,...payload})
   }catch(e:any){await client.query('ROLLBACK');console.error('register',e);res.status(400).json({message:'Não foi possível criar a conta.'})}finally{client.release()}
 })
 app.get('/api/auth/me',async(req,res)=>res.json(await authPayload(req.auth)))
-app.post('/api/auth/logout',async(req,res)=>{await destroySession(bearerToken(req));res.json({ok:true})})
+app.post('/api/auth/logout',async(req,res)=>{await destroySession(sessionToken(req));res.header('set-cookie',clearSessionCookie(req));res.json({ok:true})})
+// Transição: navegadores que ainda guardam o token no localStorage trocam-no pelo cookie uma única vez.
+app.post('/api/auth/adopt-session',async(req,res)=>{const token=bearerToken(req),expiresAt=await sessionExpiry(token);if(!token||!expiresAt)return res.status(400).json({message:'Sessão inválida.'});res.header('set-cookie',sessionCookie(req,SESSION_COOKIE_NAME,token,expiresAt));res.json({ok:true})})
 
 app.get('/api/admin/companies',async(req,res)=>{
   const r=await pool.query(`SELECT c.id,c.name,c.document,c.sector,c.activity,c.active,c.created_at,count(uc.user_id)::int user_count
