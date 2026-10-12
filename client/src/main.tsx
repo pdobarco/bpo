@@ -2,7 +2,7 @@ import React,{useEffect,useMemo,useRef,useState}from'react'
 import{createRoot}from'react-dom/client'
 import{QueryClientProvider,useQuery,useQueryClient}from'@tanstack/react-query'
 import{Home,FolderOpen,ListChecks,RefreshCcw,BarChart3,Settings,Users,X,CalendarDays,ShieldCheck,Search,ArrowUpRight,ArrowDownRight,CheckCircle2,AlertTriangle,Clock3,Pencil,Save,Plus,Trash2,BookOpen,Landmark,Database,History,WalletCards,Lock,Unlock,Eye,Menu,Check,Brain,FileSpreadsheet,SlidersHorizontal,CircleAlert,Calculator,Download,Upload,Sparkles,ChevronDown,ChevronRight,Percent,Building2,HandCoins,TrendingUp}from'lucide-react'
-import{apiFetch,apiJson,COMPANY_KEY,fetchTransactions,TOKEN_KEY}from'./api'
+import{adoptLegacySession,apiFetch,apiJson,COMPANY_KEY,DEMO_MODE_KEY,fetchTransactions,TOKEN_KEY}from'./api'
 import{queryClient}from'./queryClient'
 import{readinessItems,ReadinessList,OnboardingChecklist}from'./readiness'
 import{AsyncButton,FeedbackHost,MoreMenu,useModalA11y,notifyError,notifySuccess,notifyWarning,confirmAction,askText}from'./ui'
@@ -75,7 +75,7 @@ function AuthScreen({onAuth}:any){
   const[mode,setMode]=useState<'login'|'register'>('login'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[show,setShow]=useState(false),[status,setStatus]=useState<any>(null)
   const[form,setForm]=useState({name:'',email:'',password:'',companyName:''})
   useEffect(()=>{fetch('/api/auth/status').then(r=>r.json()).then(setStatus).catch(()=>{})},[])
-  async function submit(e:any){e.preventDefault();setBusy(true);setError('');try{const payload=await apiJson(mode==='login'?'/api/auth/login':'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});localStorage.setItem(TOKEN_KEY,payload.token);if(payload.companies?.[0]?.id)localStorage.setItem(COMPANY_KEY,payload.companies[0].id);onAuth({user:payload.user,companies:payload.companies||[]});navigate('/app')}catch(err:any){setError(err.message)}finally{setBusy(false)}}
+  async function submit(e:any){e.preventDefault();setBusy(true);setError('');try{const payload=await apiJson(mode==='login'?'/api/auth/login':'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(form)});if(payload.companies?.[0]?.id)localStorage.setItem(COMPANY_KEY,payload.companies[0].id);onAuth({user:payload.user,companies:payload.companies||[]});navigate('/app')}catch(err:any){setError(err.message)}finally{setBusy(false)}}
   return <div className="auth-page">
     <div className="auth-window">
       <section className="auth-brand-panel">
@@ -351,9 +351,9 @@ function AdminPage({tab,setTab,companies,users,companyForm,setCompanyForm,create
 
 function Root(){
   useModalA11y()
-  const[path,setPath]=useState(location.pathname),[session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(Boolean(localStorage.getItem(TOKEN_KEY)))
+  const[path,setPath]=useState(location.pathname),[session,setSession]=useState<Session|null>(null),[loading,setLoading]=useState(true)
   useEffect(()=>{const fn=()=>setPath(location.pathname);addEventListener('popstate',fn);return()=>removeEventListener('popstate',fn)},[])
-  useEffect(()=>{if(location.pathname==='/demonstracao'){setLoading(false);return}const token=localStorage.getItem(TOKEN_KEY);if(!token){setLoading(false);return}apiJson('/api/auth/me').then((me:any)=>{setSession(me);if(!localStorage.getItem(COMPANY_KEY)&&me.companies?.[0]?.id)localStorage.setItem(COMPANY_KEY,me.companies[0].id)}).catch(()=>{localStorage.removeItem(TOKEN_KEY);localStorage.removeItem(COMPANY_KEY);setSession(null)}).finally(()=>setLoading(false))},[])
+  useEffect(()=>{if(location.pathname==='/demonstracao'){setLoading(false);return}sessionStorage.removeItem(DEMO_MODE_KEY);adoptLegacySession().then(()=>apiJson('/api/auth/me')).then((me:any)=>{setSession(me);if(!localStorage.getItem(COMPANY_KEY)&&me.companies?.[0]?.id)localStorage.setItem(COMPANY_KEY,me.companies[0].id)}).catch(()=>{localStorage.removeItem(COMPANY_KEY);setSession(null)}).finally(()=>setLoading(false))},[])
   if(path==='/demonstracao')return <DemoSessionGate render={(demoSession:any)=><MainApp session={demoSession} onLogout={()=>navigate('/')} onSessionChange={()=>{}} demoMode/>}/>
   if(loading)return <div className="splash"><Logo/><Spinner/></div>
   if(!session)return <AuthScreen onAuth={setSession}/>

@@ -87,9 +87,53 @@ export function bearerToken(req: any) {
   return header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : ''
 }
 
+// A sessão do navegador fica num cookie httpOnly, fora do alcance de JavaScript.
+// A demonstração usa um cookie próprio, escolhido pelo cabeçalho x-clara-mode,
+// para não derrubar a sessão real aberta em outra aba.
+const SESSION_COOKIE = 'clara_session'
+const DEMO_COOKIE = 'clara_demo'
+
+export function sessionCookieName(req: any) {
+  return String(req.headers?.['x-clara-mode'] || '') === 'demo' ? DEMO_COOKIE : SESSION_COOKIE
+}
+
+function readCookie(req: any, name: string) {
+  for (const part of String(req.headers?.cookie || '').split(';')) {
+    const i = part.indexOf('=')
+    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim())
+  }
+  return ''
+}
+
+export function sessionToken(req: any) {
+  return bearerToken(req) || readCookie(req, sessionCookieName(req))
+}
+
+function cookieAttributes(req: any, maxAge: number) {
+  return `Path=/api; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${req.protocol === 'https' ? '; Secure' : ''}`
+}
+
+export function sessionCookie(req: any, name: string, token: string, expiresAt: Date) {
+  const maxAge = Math.max(0, Math.floor((expiresAt.getTime() - Date.now()) / 1000))
+  return `${name}=${encodeURIComponent(token)}; ${cookieAttributes(req, maxAge)}`
+}
+
+export function clearSessionCookie(req: any, name = sessionCookieName(req)) {
+  return `${name}=; ${cookieAttributes(req, 0)}`
+}
+
+export const SESSION_COOKIE_NAME = SESSION_COOKIE
+export const DEMO_COOKIE_NAME = DEMO_COOKIE
+
+export async function sessionExpiry(token: string) {
+  if (!pool || !token) return null
+  const r = await pool.query(`SELECT expires_at FROM auth_sessions WHERE token_hash=$1 AND expires_at>now() LIMIT 1`, [sha256(token)])
+  return r.rowCount ? new Date(r.rows[0].expires_at) : null
+}
+
 export async function authenticateRequest(req: any): Promise<AuthUser | null> {
   if (!pool) return null
-  const token = bearerToken(req)
+  const token = sessionToken(req)
   if (!token) return null
   const result = await pool.query(`SELECT u.id,u.email,u.name,u.role,u.status
     FROM auth_sessions s JOIN users u ON u.id=s.user_id
